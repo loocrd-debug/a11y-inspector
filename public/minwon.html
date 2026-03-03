@@ -84,6 +84,11 @@
             <button onclick="addSelectedToBatch()" class="bg-blue-600 hover:bg-blue-700 text-white text-sm px-4 py-2 rounded-lg font-medium transition flex items-center gap-2">
               <i class="fas fa-plus"></i> 배치에 추가
             </button>
+            <button onclick="startAllScan()" id="start-all-btn"
+              class="bg-orange-600 hover:bg-orange-700 text-white text-sm px-4 py-2 rounded-lg font-medium transition flex items-center gap-2"
+              title="민원안내 전체 페이지를 1000개 단위로 자동 수집하여 검사합니다">
+              <i class="fas fa-globe"></i> 전체 검사
+            </button>
           </div>
         </div>
 
@@ -126,6 +131,8 @@
               <option value="10">10개씩</option>
               <option value="20" selected>20개씩</option>
               <option value="50">50개씩</option>
+              <option value="100">100개씩</option>
+              <option value="1000">1000개씩</option>
             </select>
           </div>
         </div>
@@ -234,9 +241,14 @@
             </h3>
             <p class="text-xs text-gray-500 mb-4">각 페이지당 평균 15~30초 소요됩니다. 대상 페이지가 많을 경우 시간이 걸릴 수 있습니다.</p>
             <button onclick="startBatchScan()" id="start-btn"
-              class="w-full bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white font-bold py-3 px-6 rounded-xl transition flex items-center justify-center gap-2 text-sm">
+              class="w-full bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white font-bold py-3 px-6 rounded-xl transition flex items-center justify-center gap-2 text-sm mb-2">
               <i class="fas fa-play"></i>
-              배치 스캔 시작
+              배치 스캔 시작 (선택 목록)
+            </button>
+            <button onclick="startAllScan()" id="start-all-btn2"
+              class="w-full bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white font-bold py-3 px-6 rounded-xl transition flex items-center justify-center gap-2 text-sm">
+              <i class="fas fa-globe"></i>
+              전체 민원안내 검사 (1000개 단위)
             </button>
           </div>
 
@@ -315,8 +327,13 @@
             <div class="flex gap-2">
               <button onclick="downloadBatchReport()" id="dl-batch-btn" disabled
                 class="bg-teal-600 hover:bg-teal-700 disabled:bg-gray-300 text-white text-xs px-4 py-2 rounded-lg transition flex items-center gap-1">
-                <i class="fas fa-file-download"></i>
-                전체 보고서 다운로드
+                <i class="fas fa-file-alt"></i>
+                HTML 보고서
+              </button>
+              <button onclick="downloadBatchExcel()" id="dl-excel-btn" disabled
+                class="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white text-xs px-4 py-2 rounded-lg transition flex items-center gap-1">
+                <i class="fas fa-file-excel"></i>
+                엑셀 다운로드
               </button>
             </div>
           </div>
@@ -685,7 +702,7 @@
           class="w-full text-left flex items-center gap-3 p-3 rounded-lg border transition mb-2
           ${s.id === currentSessionId ? 'border-blue-300 bg-blue-50' : 'border-gray-200 hover:border-blue-200 hover:bg-gray-50'}">
           <div class="flex-1">
-            <div class="text-sm font-semibold text-gray-700 truncate">${s.id.substring(0, 30)}...</div>
+            <div class="text-sm font-semibold text-gray-700 truncate">${s.label || s.id.substring(0, 30) + '...'}</div>
             <div class="text-xs text-gray-400">총 ${s.total}개 페이지 | ${new Date(s.createdAt).toLocaleString('ko-KR')}</div>
           </div>
           <span class="text-xs px-2 py-1 rounded-full ${s.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}">
@@ -785,6 +802,7 @@
         // 전체 보고서 버튼 활성화
         if (data.status === 'completed') {
           document.getElementById('dl-batch-btn').disabled = false
+          document.getElementById('dl-excel-btn').disabled = false
         }
 
       } catch (e) {
@@ -795,6 +813,133 @@
     async function downloadBatchReport() {
       if (!currentSessionId) return
       window.location.href = '/api/batch/' + currentSessionId + '/report'
+    }
+
+    async function downloadBatchExcel() {
+      if (!currentSessionId) return
+      const btn = document.getElementById('dl-excel-btn')
+      btn.disabled = true
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>생성 중...'
+      try {
+        window.location.href = '/api/batch/' + currentSessionId + '/excel'
+        setTimeout(() => {
+          btn.disabled = false
+          btn.innerHTML = '<i class="fas fa-file-excel mr-1"></i>엑셀 다운로드'
+        }, 3000)
+      } catch (e) {
+        alert('엑셀 다운로드 실패: ' + e.message)
+        btn.disabled = false
+        btn.innerHTML = '<i class="fas fa-file-excel mr-1"></i>엑셀 다운로드'
+      }
+    }
+
+    // ─── 전체 민원안내 검사 (start-all) ──────────────────
+    async function startAllScan() {
+      const confirmed = confirm(
+        '⚠️ 전체 민원안내 페이지 검사\n\n' +
+        '• 약 1,200~1,500개 페이지를 1000개 단위로 분할하여 검사합니다.\n' +
+        '• 현재 검색어/카테고리 필터가 있으면 해당 범위만 검사합니다.\n' +
+        '• 페이지당 약 20~30초 소요 → 전체 완료에 수 시간이 걸릴 수 있습니다.\n' +
+        '• 검사 중 브라우저를 닫아도 서버에서 계속 진행됩니다.\n\n' +
+        '계속하시겠습니까?'
+      )
+      if (!confirmed) return
+
+      const btns = [document.getElementById('start-all-btn'), document.getElementById('start-all-btn2')]
+      btns.forEach(b => { if(b) { b.disabled = true; b.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>수집 중...' } })
+
+      const options = {
+        level: document.getElementById('scan-level').value,
+        includeScreenshot: document.getElementById('opt-screenshot').checked,
+        checkSpelling: document.getElementById('opt-spelling').checked,
+        checkLinks: document.getElementById('opt-links').checked
+      }
+
+      const queryInput = document.getElementById('search-query')
+      const query = queryInput ? queryInput.value.trim() : ''
+
+      try {
+        const res = await fetch('/api/batch/start-all', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, options, chunkSize: 1000 })
+        })
+        const data = await res.json()
+        if (data.error) throw new Error(data.error)
+
+        alert(
+          `✅ 전체 검사가 시작되었습니다!\n\n` +
+          `• 총 ${data.totalUrls}개 URL\n` +
+          `• ${data.totalSessions}개 세션으로 분할 (${data.chunkSize}개씩)\n` +
+          `• 첫 번째 세션 ID: ${data.firstSessionId}\n\n` +
+          `결과 탭에서 진행 상황을 확인하세요.`
+        )
+
+        // 모든 세션 등록
+        data.sessionIds.forEach((sid, i) => {
+          allSessions.push({
+            id: sid,
+            total: data.chunkSize,
+            createdAt: new Date().toISOString(),
+            status: 'running',
+            label: `전체검사 #${i+1}/${data.totalSessions}`
+          })
+        })
+
+        currentSessionId = data.firstSessionId
+
+        // 첫 번째 세션 폴링 시작
+        document.getElementById('progress-panel').classList.remove('hidden')
+        startPollingAll(data.sessionIds)
+
+      } catch (e) {
+        alert('전체 검사 시작 실패: ' + e.message)
+      } finally {
+        btns.forEach(b => { if(b) { b.disabled = false; b.innerHTML = b.id === 'start-all-btn' ? '<i class="fas fa-globe mr-2"></i>전체 검사' : '<i class="fas fa-globe mr-2"></i>전체 민원안내 검사 (1000개 단위)' } })
+      }
+    }
+
+    function startPollingAll(sessionIds) {
+      stopPolling()
+      let currentIdx = 0
+      const totalSessions = sessionIds.length
+
+      const poll = async () => {
+        if (currentIdx >= totalSessions) {
+          stopPolling()
+          document.getElementById('progress-current').textContent = '모든 세션 완료!'
+          const idx = allSessions.findIndex(s => s.id === sessionIds[sessionIds.length-1])
+          if (idx >= 0) allSessions[idx].status = 'completed'
+          setTimeout(() => { switchTab('results'); loadSessionResults(sessionIds[0]) }, 1500)
+          return
+        }
+
+        const sid = sessionIds[currentIdx]
+        try {
+          const res = await fetch('/api/batch/' + sid + '/status')
+          const data = await res.json()
+
+          // 진행률: 현재 세션 기준 + 이전 완료 세션 가중치
+          const sessionProgress = data.progress || 0
+          const overallPct = Math.round((currentIdx * 100 + sessionProgress) / totalSessions)
+
+          document.getElementById('progress-label').textContent =
+            `세션 ${currentIdx+1}/${totalSessions} | ${data.completed}/${data.total} 완료`
+          document.getElementById('progress-pct').textContent = overallPct + '%'
+          document.getElementById('progress-fill').style.width = overallPct + '%'
+          document.getElementById('progress-current').textContent =
+            `세션 ${currentIdx+1} 처리 중 (완료: ${data.completed}, 오류: ${data.failed})`
+
+          if (data.status === 'completed') {
+            const idx = allSessions.findIndex(s => s.id === sid)
+            if (idx >= 0) allSessions[idx].status = 'completed'
+            currentIdx++
+            if (currentIdx < totalSessions) currentSessionId = sessionIds[currentIdx]
+          }
+        } catch {}
+      }
+
+      pollingTimer = setInterval(poll, 3000)
     }
 
     // ─── 증적 모달 ──────────────────────────────────────

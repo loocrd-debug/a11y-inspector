@@ -6,6 +6,7 @@ import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import { createRequire } from 'module'
+import ExcelJS from 'exceljs'
 
 const require = createRequire(import.meta.url)
 const __filename = fileURLToPath(import.meta.url)
@@ -518,9 +519,11 @@ const evidenceStore = new Map()
 // 민원 목록 조회 (plus.gov.kr API 활용 → www.gov.kr/mw 민원안내 URL 사용)
 app.get('/api/minwon/list', async (req, res) => {
   const { page = 1, pageSize = 20, query = '' } = req.query
+  const ps = Math.min(parseInt(pageSize) || 20, 1000)  // 최대 1000개 허용
   // GOV24_URL 기준으로 중복이 많으므로 실제 표시할 수보다 더 많이 가져옴
-  const fetchSize = Math.min(parseInt(pageSize) * 4, 200)
-  const startCount = (parseInt(page) - 1) * parseInt(pageSize)
+  // pageSize=1000일 때 충분히 수집하기 위해 최대 6000까지 허용
+  const fetchSize = Math.min(ps * 6, 6000)
+  const startCount = (parseInt(page) - 1) * ps
 
   try {
     const response = await fetch('https://plus.gov.kr/api/iwcas/guide/v1.0/search/mergeResult', {
@@ -571,13 +574,13 @@ app.get('/api/minwon/list', async (req, res) => {
         url: govUrl,
         cappBizCd
       })
-      if (items.length >= parseInt(pageSize)) break
+      if (items.length >= ps) break
     }
 
     res.json({
       total: totalCount,
       page: parseInt(page),
-      pageSize: parseInt(pageSize),
+      pageSize: ps,
       items
     })
   } catch (err) {
@@ -585,6 +588,97 @@ app.get('/api/minwon/list', async (req, res) => {
     res.status(500).json({ error: '민원 목록 조회 실패: ' + err.message })
   }
 })
+
+// ─── 민원 전체 URL 목록 수집 (배치 전체 검사용) ───────
+// plus.gov.kr API를 페이지별로 순회하여 GOV24 URL 중복 제거 후 전부 수집
+app.get('/api/minwon/all-urls', async (req, res) => {
+  const { query = '' } = req.query
+  try {
+    const PAGE_BATCH = 200   // 1회 API 호출당 가져올 수
+    let startCount = 0
+    const seenCds = new Set()
+    const allItems = []
+
+    // 첫 번째 호출로 totalCount 파악
+    const first = await fetchMinwonPage(query, 0, PAGE_BATCH)
+    const total = first.total
+
+    for (const item of first.items) {
+      if (!seenCds.has(item.cappBizCd)) {
+        seenCds.add(item.cappBizCd)
+        allItems.push(item)
+      }
+    }
+    startCount += PAGE_BATCH
+
+    // 나머지 페이지 병렬 수집 (10개씩 묶어서)
+    const remaining = Math.ceil((total - PAGE_BATCH) / PAGE_BATCH)
+    const batches = []
+    for (let i = 0; i < remaining; i++) {
+      batches.push(startCount + i * PAGE_BATCH)
+    }
+
+    // 20개씩 병렬 처리
+    const PARALLEL = 20
+    for (let i = 0; i < batches.length; i += PARALLEL) {
+      const chunk = batches.slice(i, i + PARALLEL)
+      const results = await Promise.allSettled(
+        chunk.map(sc => fetchMinwonPage(query, sc, PAGE_BATCH))
+      )
+      for (const r of results) {
+        if (r.status === 'fulfilled') {
+          for (const item of r.value.items) {
+            if (!seenCds.has(item.cappBizCd)) {
+              seenCds.add(item.cappBizCd)
+              allItems.push(item)
+            }
+          }
+        }
+      }
+    }
+
+    res.json({ total: allItems.length, items: allItems })
+  } catch (err) {
+    console.error('전체 목록 수집 오류:', err.message)
+    res.status(500).json({ error: '전체 목록 수집 실패: ' + err.message })
+  }
+})
+
+// plus.gov.kr API 호출 헬퍼 (내부 함수)
+async function fetchMinwonPage(query, startCount, listCount) {
+  const response = await fetch('https://plus.gov.kr/api/iwcas/guide/v1.0/search/mergeResult', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json', 'Accept': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
+      'Referer': 'https://plus.gov.kr/minwon'
+    },
+    body: JSON.stringify({
+      query: query || '', startCount: String(startCount), listCount: String(listCount),
+      collections: 'IW_SERVICE',
+      sortField: 'WEIGHT/DESC,RANK/DESC,INQ_CNT/DESC,TYPE_SN/ASC,UID/ASC', docId: ''
+    })
+  })
+  const data = await response.json()
+  const mergeResult = data.searchMergeResult?.MERGE_COLLECTION || []
+  const items = []
+  for (const item of mergeResult) {
+    if (!item.GOV24_URL) continue
+    const bizCdMatch = item.GOV24_URL.match(/CappBizCD=(\w+)/)
+    if (!bizCdMatch) continue
+    const cappBizCd = bizCdMatch[1]
+    items.push({
+      id: cappBizCd, docId: item.DOCID, title: item.TITLE || '',
+      content: item.CONTENT ? item.CONTENT.substring(0, 100) : '',
+      category: item.L_CATEGORY ? item.L_CATEGORY.split('#')[1] || item.L_CATEGORY : '',
+      subCategory: item.M_CATEGORY ? item.M_CATEGORY.split('#')[1] || item.M_CATEGORY : '',
+      department: item.DEPARTMENT || '',
+      url: `https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=${cappBizCd}`,
+      cappBizCd
+    })
+  }
+  return { total: data.totalCount || 0, items }
+}
 
 // ═══════════════════════════════════════════════════════
 // ─── 배치 스캔 API ────────────────────────────────────
@@ -744,8 +838,8 @@ app.post('/api/batch/start', async (req, res) => {
   if (!urls || !Array.isArray(urls) || urls.length === 0) {
     return res.status(400).json({ error: 'urls 배열이 필요합니다.' })
   }
-  if (urls.length > 50) {
-    return res.status(400).json({ error: '최대 50개 URL까지 배치 스캔 가능합니다.' })
+  if (urls.length > 1000) {
+    return res.status(400).json({ error: '최대 1000개 URL까지 배치 스캔 가능합니다.' })
   }
 
   const sessionId = 'batch_' + Date.now() + '_' + Math.random().toString(36).slice(2)
@@ -784,6 +878,112 @@ app.post('/api/batch/start', async (req, res) => {
     session.status = 'completed'
     session.finishedAt = new Date().toISOString()
   })()
+})
+
+// ─── 전체 민원안내 페이지 일괄 검사 (all-urls 수집 후 자동 배치 시작) ──────
+// 1) /api/minwon/all-urls 로 전체 URL 수집 (쿼리 옵션 지원)
+// 2) 1000개 단위로 분할하여 여러 배치 세션 생성
+// 3) 첫 번째 세션 ID 반환 + 전체 세션 목록도 함께 반환
+app.post('/api/batch/start-all', async (req, res) => {
+  const { query = '', options = {}, chunkSize = 1000 } = req.body
+  const safeChunk = Math.min(Math.max(parseInt(chunkSize) || 1000, 1), 1000)
+
+  try {
+    // 전체 URL 수집
+    const PAGE_BATCH = 200
+    let startCount = 0
+    const seenCds = new Set()
+    const allItems = []
+
+    const first = await fetchMinwonPage(query, 0, PAGE_BATCH)
+    const total = first.total
+    for (const item of first.items) {
+      if (!seenCds.has(item.cappBizCd)) { seenCds.add(item.cappBizCd); allItems.push(item) }
+    }
+    startCount += PAGE_BATCH
+
+    const remaining = Math.ceil((total - PAGE_BATCH) / PAGE_BATCH)
+    const batches = []
+    for (let i = 0; i < remaining; i++) batches.push(startCount + i * PAGE_BATCH)
+
+    const PARALLEL = 20
+    for (let i = 0; i < batches.length; i += PARALLEL) {
+      const chunk = batches.slice(i, i + PARALLEL)
+      const results = await Promise.allSettled(chunk.map(sc => fetchMinwonPage(query, sc, PAGE_BATCH)))
+      for (const r of results) {
+        if (r.status === 'fulfilled') {
+          for (const item of r.value.items) {
+            if (!seenCds.has(item.cappBizCd)) { seenCds.add(item.cappBizCd); allItems.push(item) }
+          }
+        }
+      }
+    }
+
+    if (allItems.length === 0) {
+      return res.status(404).json({ error: '검사할 URL이 없습니다.' })
+    }
+
+    // safeChunk 단위로 분할하여 배치 세션 생성
+    const sessionIds = []
+    for (let i = 0; i < allItems.length; i += safeChunk) {
+      const chunk = allItems.slice(i, i + safeChunk)
+      const urls = chunk.map(item => ({ url: item.url, title: item.title, category: item.category, department: item.department }))
+      const sessionId = 'batch_' + Date.now() + '_' + Math.random().toString(36).slice(2)
+      const session = {
+        id: sessionId,
+        createdAt: new Date().toISOString(),
+        total: urls.length,
+        completed: 0,
+        failed: 0,
+        status: 'running',
+        results: [],
+        options,
+        urls,
+        chunkIndex: Math.floor(i / safeChunk),
+        totalChunks: Math.ceil(allItems.length / safeChunk)
+      }
+      batchSessions.set(sessionId, session)
+      sessionIds.push(sessionId)
+
+      // 각 세션을 백그라운드에서 순차 처리
+      ;(async (sess, urlList) => {
+        for (let j = 0; j < urlList.length; j++) {
+          const entry = urlList[j]
+          const urlStr = typeof entry === 'string' ? entry : entry.url
+          try {
+            const result = await scanSinglePage(urlStr, options)
+            // 메타정보 보강
+            if (typeof entry === 'object') {
+              result.category = result.category || entry.category
+              result.department = result.department || entry.department
+            }
+            sess.results.push(result)
+            evidenceStore.set(result.id, result)
+            if (result.status === 'error') sess.failed++
+            else sess.completed++
+          } catch (err) {
+            sess.failed++
+            sess.results.push({ url: urlStr, status: 'error', error: err.message })
+          }
+          sess.progress = Math.round((j + 1) / urlList.length * 100)
+        }
+        sess.status = 'completed'
+        sess.finishedAt = new Date().toISOString()
+      })(session, urls)
+    }
+
+    res.json({
+      totalUrls: allItems.length,
+      totalSessions: sessionIds.length,
+      chunkSize: safeChunk,
+      sessionIds,
+      firstSessionId: sessionIds[0],
+      message: `${allItems.length}개 URL을 ${sessionIds.length}개 세션으로 분할하여 검사를 시작합니다.`
+    })
+  } catch (err) {
+    console.error('전체 검사 시작 오류:', err.message)
+    res.status(500).json({ error: '전체 검사 시작 실패: ' + err.message })
+  }
 })
 
 // 배치 스캔 상태 조회
@@ -857,7 +1057,336 @@ app.get('/api/batch/:sessionId/report', (req, res) => {
   res.send(html)
 })
 
-// ─── HTML 보고서 생성 함수 ────────────────────────────
+// ─── 배치 결과 엑셀 다운로드 API ─────────────────────
+app.get('/api/batch/:sessionId/excel', async (req, res) => {
+  const session = batchSessions.get(req.params.sessionId)
+  if (!session) return res.status(404).json({ error: '세션을 찾을 수 없습니다.' })
+
+  try {
+    const wb = new ExcelJS.Workbook()
+    wb.creator = 'A11y Inspector'
+    wb.created = new Date()
+
+    // ── 시트 1: 종합 현황 ─────────────────────────────
+    const summaryWs = wb.addWorksheet('종합 현황')
+    summaryWs.columns = [
+      { header: '항목', key: 'label', width: 28 },
+      { header: '값', key: 'value', width: 40 }
+    ]
+    const headerStyle = { font: { bold: true, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } }, alignment: { horizontal: 'center' } }
+    summaryWs.getRow(1).eachCell(c => Object.assign(c, headerStyle))
+
+    const completedResults = session.results.filter(r => r.status !== 'error')
+    const avgScore = completedResults.length > 0
+      ? Math.round(completedResults.reduce((s, r) => s + (r.score || 0), 0) / completedResults.length) : 0
+    const totalViol = session.results.reduce((s, r) => s + (r.summary?.violations || 0), 0)
+    const totalSpell = session.results.reduce((s, r) => s + (r.spelling?.totalIssues || 0), 0)
+    const totalDead = session.results.reduce((s, r) => s + (r.links?.dead?.length || 0), 0)
+    const errored = session.results.filter(r => r.status === 'error').length
+
+    const summaryData = [
+      ['검사 세션 ID', session.id],
+      ['검사 시작 일시', new Date(session.createdAt).toLocaleString('ko-KR')],
+      ['검사 완료 일시', session.finishedAt ? new Date(session.finishedAt).toLocaleString('ko-KR') : '진행 중'],
+      ['검사 대상 URL 수', session.total],
+      ['성공', session.completed],
+      ['오류', errored],
+      ['평균 접근성 점수 (0~100)', avgScore],
+      ['총 접근성 위반 건수', totalViol],
+      ['총 오탈자 건수', totalSpell],
+      ['총 데드링크 건수', totalDead],
+      ['WCAG 검사 수준', session.options?.level || 'wcag2aa'],
+    ]
+    summaryData.forEach(([label, value]) => {
+      const row = summaryWs.addRow({ label, value })
+      row.getCell('label').font = { bold: true }
+      row.getCell('label').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } }
+    })
+    summaryWs.getColumn('label').border = { right: { style: 'thin', color: { argb: 'FFE2E8F0' } } }
+
+    // ── 시트 2: 페이지별 결과 ─────────────────────────
+    const ws = wb.addWorksheet('페이지별 결과')
+    ws.columns = [
+      { header: 'No.', key: 'no', width: 6 },
+      { header: '페이지 제목', key: 'title', width: 36 },
+      { header: 'URL (www.gov.kr/mw)', key: 'url', width: 52 },
+      { header: '카테고리', key: 'category', width: 18 },
+      { header: '부서', key: 'department', width: 18 },
+      { header: '접근성 점수', key: 'score', width: 13 },
+      { header: '위반 수', key: 'violations', width: 10 },
+      { header: '통과 수', key: 'passes', width: 10 },
+      { header: '치명적', key: 'critical', width: 9 },
+      { header: '심각', key: 'serious', width: 9 },
+      { header: '보통', key: 'moderate', width: 9 },
+      { header: '경미', key: 'minor', width: 9 },
+      { header: '오탈자 수', key: 'spelling', width: 10 },
+      { header: '검사 어절 수', key: 'words', width: 12 },
+      { header: '데드링크 수', key: 'deadLinks', width: 12 },
+      { header: '리다이렉트 수', key: 'redirects', width: 13 },
+      { header: '정상 링크 수', key: 'liveLinks', width: 12 },
+      { header: '전체 링크 수', key: 'totalLinks', width: 12 },
+      { header: '검사 상태', key: 'status', width: 10 },
+      { header: '검사 일시', key: 'scannedAt', width: 22 },
+      { header: '오류 메시지', key: 'errorMsg', width: 40 }
+    ]
+
+    // 헤더 스타일
+    ws.getRow(1).eachCell(c => {
+      c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }
+      c.alignment = { horizontal: 'center', vertical: 'middle', wrapText: false }
+      c.border = { bottom: { style: 'medium', color: { argb: 'FF2563EB' } } }
+    })
+    ws.getRow(1).height = 22
+
+    // 데이터 행
+    session.results.forEach((r, idx) => {
+      const imp = r.summary?.impactCounts || {}
+      const sp = r.spelling || {}
+      const lk = r.links || {}
+      const score = r.score ?? null
+      const isError = r.status === 'error'
+
+      const row = ws.addRow({
+        no: idx + 1,
+        title: r.pageTitle || '(오류)',
+        url: r.url || r.originalUrl || '',
+        category: r.category || '',
+        department: r.department || '',
+        score: score,
+        violations: r.summary?.violations ?? '',
+        passes: r.summary?.passes ?? '',
+        critical: imp.critical || 0,
+        serious: imp.serious || 0,
+        moderate: imp.moderate || 0,
+        minor: imp.minor || 0,
+        spelling: sp.totalIssues ?? '',
+        words: sp.totalWords ?? '',
+        deadLinks: lk.dead?.length ?? '',
+        redirects: lk.redirects?.length ?? '',
+        liveLinks: lk.live ?? '',
+        totalLinks: lk.total ?? '',
+        status: isError ? '오류' : '완료',
+        scannedAt: r.scannedAt ? new Date(r.scannedAt).toLocaleString('ko-KR') : '',
+        errorMsg: r.error || ''
+      })
+
+      // 행 배경 (짝수 줄 연회색)
+      const bg = idx % 2 === 0 ? 'FFFFFFFF' : 'FFF8FAFC'
+      row.eachCell(c => {
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } }
+        c.font = { size: 9 }
+        c.alignment = { vertical: 'middle' }
+      })
+
+      // 점수 색상
+      if (score !== null) {
+        const scoreCell = row.getCell('score')
+        scoreCell.font = { bold: true, size: 10, color: { argb: score >= 80 ? 'FF16A34A' : score >= 50 ? 'FFD97706' : 'FFDC2626' } }
+        scoreCell.alignment = { horizontal: 'center', vertical: 'middle' }
+      }
+
+      // 위반 수 빨간색
+      if ((r.summary?.violations || 0) > 0) {
+        const vc = row.getCell('violations')
+        vc.font = { bold: true, color: { argb: 'FFDC2626' }, size: 10 }
+        vc.alignment = { horizontal: 'center', vertical: 'middle' }
+      }
+
+      // 치명적/심각 색상
+      if ((imp.critical || 0) > 0) row.getCell('critical').font = { bold: true, color: { argb: 'FFDC2626' }, size: 9 }
+      if ((imp.serious || 0) > 0) row.getCell('serious').font = { bold: true, color: { argb: 'FFEA580C' }, size: 9 }
+
+      // 오탈자 색상
+      if ((sp.totalIssues || 0) > 0) {
+        row.getCell('spelling').font = { bold: true, color: { argb: 'FF7C3AED' }, size: 10 }
+      }
+
+      // 데드링크 색상
+      if ((lk.dead?.length || 0) > 0) {
+        row.getCell('deadLinks').font = { bold: true, color: { argb: 'FFDC2626' }, size: 10 }
+      }
+
+      // 상태 색상
+      const stCell = row.getCell('status')
+      stCell.font = { bold: true, color: { argb: isError ? 'FFDC2626' : 'FF16A34A' }, size: 9 }
+      stCell.alignment = { horizontal: 'center', vertical: 'middle' }
+
+      // 숫자 중앙 정렬
+      ;['no', 'score', 'violations', 'passes', 'critical', 'serious', 'moderate', 'minor',
+        'spelling', 'words', 'deadLinks', 'redirects', 'liveLinks', 'totalLinks'].forEach(k => {
+        row.getCell(k).alignment = { horizontal: 'center', vertical: 'middle' }
+      })
+
+      row.height = 18
+    })
+
+    // 자동 필터
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: ws.columns.length } }
+
+    // 틀 고정 (1행)
+    ws.views = [{ state: 'frozen', ySplit: 1 }]
+
+    // ── 시트 3: 접근성 위반 상세 ─────────────────────────
+    const violWs = wb.addWorksheet('접근성 위반 상세')
+    violWs.columns = [
+      { header: 'No.', key: 'no', width: 6 },
+      { header: '페이지 제목', key: 'title', width: 32 },
+      { header: 'URL', key: 'url', width: 48 },
+      { header: '규칙 ID', key: 'ruleId', width: 22 },
+      { header: '심각도', key: 'impact', width: 10 },
+      { header: '위반 내용', key: 'help', width: 40 },
+      { header: '설명', key: 'description', width: 50 },
+      { header: '영향받는 요소 수', key: 'nodeCount', width: 16 },
+      { header: '첫 번째 요소 HTML', key: 'firstHtml', width: 60 }
+    ]
+    violWs.getRow(1).eachCell(c => {
+      c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7F1D1D' } }
+      c.alignment = { horizontal: 'center', vertical: 'middle' }
+    })
+    violWs.getRow(1).height = 22
+
+    const impactOrder = { critical: 1, serious: 2, moderate: 3, minor: 4 }
+    const impactColorArgb = { critical: 'FFDC2626', serious: 'FFEA580C', moderate: 'FFD97706', minor: 'FF65A30D' }
+    const impactLabelKo = { critical: '치명적', serious: '심각', moderate: '보통', minor: '경미' }
+    let violRowIdx = 0
+    session.results.forEach(r => {
+      if (!r.violations || r.violations.length === 0) return
+      const sorted = [...r.violations].sort((a, b) => (impactOrder[a.impact] || 9) - (impactOrder[b.impact] || 9))
+      sorted.forEach(v => {
+        const row = violWs.addRow({
+          no: ++violRowIdx,
+          title: r.pageTitle || '',
+          url: r.url || '',
+          ruleId: v.id,
+          impact: impactLabelKo[v.impact] || v.impact,
+          help: v.help,
+          description: v.description,
+          nodeCount: v.nodes?.length || 0,
+          firstHtml: v.nodes?.[0]?.html?.substring(0, 200) || ''
+        })
+        const bg = violRowIdx % 2 === 0 ? 'FFFFFFFF' : 'FFFFF1F2'
+        row.eachCell(c => {
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } }
+          c.font = { size: 9 }
+          c.alignment = { vertical: 'middle', wrapText: false }
+        })
+        const impCell = row.getCell('impact')
+        impCell.font = { bold: true, color: { argb: impactColorArgb[v.impact] || 'FF6B7280' }, size: 9 }
+        impCell.alignment = { horizontal: 'center', vertical: 'middle' }
+        row.getCell('no').alignment = { horizontal: 'center', vertical: 'middle' }
+        row.height = 16
+      })
+    })
+    violWs.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: violWs.columns.length } }
+    violWs.views = [{ state: 'frozen', ySplit: 1 }]
+
+    // ── 시트 4: 오탈자 상세 ──────────────────────────────
+    const spellWs = wb.addWorksheet('오탈자 상세')
+    spellWs.columns = [
+      { header: 'No.', key: 'no', width: 6 },
+      { header: '페이지 제목', key: 'title', width: 32 },
+      { header: 'URL', key: 'url', width: 48 },
+      { header: '오탈자', key: 'word', width: 18 },
+      { header: '수정 제안', key: 'suggestion', width: 18 },
+      { header: '설명', key: 'desc', width: 40 },
+      { header: '문맥', key: 'context', width: 50 }
+    ]
+    spellWs.getRow(1).eachCell(c => {
+      c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4C1D95' } }
+      c.alignment = { horizontal: 'center', vertical: 'middle' }
+    })
+    spellWs.getRow(1).height = 22
+
+    let spellRowIdx = 0
+    session.results.forEach(r => {
+      if (!r.spelling?.issues?.length) return
+      r.spelling.issues.forEach(issue => {
+        const row = spellWs.addRow({
+          no: ++spellRowIdx,
+          title: r.pageTitle || '',
+          url: r.url || '',
+          word: issue.word,
+          suggestion: issue.suggestion,
+          desc: issue.desc || '',
+          context: issue.context ? `...${issue.context}...` : ''
+        })
+        const bg = spellRowIdx % 2 === 0 ? 'FFFFFFFF' : 'FFFAF5FF'
+        row.eachCell(c => {
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } }
+          c.font = { size: 9 }
+          c.alignment = { vertical: 'middle' }
+        })
+        row.getCell('word').font = { bold: true, color: { argb: 'FF7C3AED' }, size: 9 }
+        row.getCell('suggestion').font = { bold: true, color: { argb: 'FF059669' }, size: 9 }
+        row.getCell('no').alignment = { horizontal: 'center', vertical: 'middle' }
+        row.height = 16
+      })
+    })
+    spellWs.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: spellWs.columns.length } }
+    spellWs.views = [{ state: 'frozen', ySplit: 1 }]
+
+    // ── 시트 5: 데드링크 상세 ────────────────────────────
+    const linkWs = wb.addWorksheet('데드링크 상세')
+    linkWs.columns = [
+      { header: 'No.', key: 'no', width: 6 },
+      { header: '페이지 제목', key: 'title', width: 32 },
+      { header: '페이지 URL', key: 'pageUrl', width: 48 },
+      { header: '데드링크 URL', key: 'linkUrl', width: 56 },
+      { header: '링크 텍스트', key: 'linkText', width: 28 },
+      { header: 'HTTP 상태', key: 'status', width: 12 },
+      { header: '오류 메시지', key: 'error', width: 36 }
+    ]
+    linkWs.getRow(1).eachCell(c => {
+      c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7F1D1D' } }
+      c.alignment = { horizontal: 'center', vertical: 'middle' }
+    })
+    linkWs.getRow(1).height = 22
+
+    let linkRowIdx = 0
+    session.results.forEach(r => {
+      if (!r.links?.dead?.length) return
+      r.links.dead.forEach(link => {
+        const row = linkWs.addRow({
+          no: ++linkRowIdx,
+          title: r.pageTitle || '',
+          pageUrl: r.url || '',
+          linkUrl: link.url,
+          linkText: link.text || '',
+          status: link.status || '오류',
+          error: link.error || ''
+        })
+        const bg = linkRowIdx % 2 === 0 ? 'FFFFFFFF' : 'FFFFF1F2'
+        row.eachCell(c => {
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } }
+          c.font = { size: 9 }
+          c.alignment = { vertical: 'middle' }
+        })
+        row.getCell('status').font = { bold: true, color: { argb: 'FFDC2626' }, size: 9 }
+        row.getCell('status').alignment = { horizontal: 'center', vertical: 'middle' }
+        row.getCell('no').alignment = { horizontal: 'center', vertical: 'middle' }
+        row.height = 16
+      })
+    })
+    linkWs.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: linkWs.columns.length } }
+    linkWs.views = [{ state: 'frozen', ySplit: 1 }]
+
+    // 엑셀 출력
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    const filename = `minwon-a11y-report-${dateStr}.xlsx`
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`)
+    await wb.xlsx.write(res)
+    res.end()
+
+  } catch (err) {
+    console.error('엑셀 생성 오류:', err.message)
+    res.status(500).json({ error: '엑셀 생성 실패: ' + err.message })
+  }
+})
 function generateReportHtml(result) {
   const impactColor = { critical: '#dc2626', serious: '#ea580c', moderate: '#d97706', minor: '#65a30d' }
   const impactLabel = { critical: '치명적', serious: '심각', moderate: '보통', minor: '경미' }

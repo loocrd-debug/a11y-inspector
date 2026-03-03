@@ -1,113 +1,71 @@
-# ♿ A11y Inspector - 웹 접근성 검사 도구
+# ♿ A11y Inspector - 웹 품질 종합 검사 도구
 
-## 프로젝트 개요
-- **이름**: A11y Inspector
-- **목표**: 웹사이트의 WCAG 2.1 접근성 기준 자동 검사 및 증적자료 생성
-- **주요 기능**:
-  - URL 입력만으로 접근성 자동 검사
-  - 스크린샷 포함 HTML 증적보고서 생성
-  - 심각도별(치명적/심각/보통/경미) 위반 항목 분류
-  - WCAG Level A / AA / AAA 선택 가능
-  - 검사 결과 차트 시각화
+웹사이트의 **접근성(WCAG 2.1)**, **오탈자(한글/영문)**, **데드링크**를 한 번에 검사하고 HTML 증적보고서를 생성하는 도구입니다.
 
-## 기술 스택
-- **Backend**: Node.js + Express.js
-- **검사 엔진**: [axe-core](https://www.deque.com/axe/) (Deque Systems)
-- **브라우저 자동화**: Playwright (Chromium headless)
-- **Frontend**: Tailwind CSS + Chart.js + Font Awesome
-- **프로세스 관리**: PM2
+---
 
-## 실행 방법
+## 🚀 배포 방법 (Railway - 무료)
 
-### 의존성 설치
+### 1단계: Railway 계정 생성
+👉 https://railway.app 에서 GitHub 계정으로 가입
+
+### 2단계: 새 프로젝트 생성
+1. Railway 대시보드 → **"New Project"** 클릭
+2. **"Deploy from GitHub repo"** 선택
+3. **`loocrd-debug/a11y-inspector`** 저장소 선택
+4. Railway가 Dockerfile을 자동 감지하여 빌드 시작
+
+### 3단계: 공개 URL 발급
+1. 배포 완료 후 서비스 클릭
+2. **Settings → Networking → Generate Domain** 클릭
+3. `https://a11y-inspector-xxxx.up.railway.app` 형태의 URL 발급
+
+> ✅ 이후 `main` 브랜치에 push할 때마다 자동으로 재배포됩니다.
+
+---
+
+## 📋 주요 기능
+
+| 기능 | 설명 |
+|------|------|
+| ♿ **접근성 검사** | WCAG 2.1 Level A/AA/AAA 기준 axe-core 엔진 검사 |
+| ✍️ **오탈자 검사** | 한글 맞춤법 규칙 + 영문 nspell 사전 기반 |
+| 🔗 **데드링크 검사** | HTTP 상태코드 기반 링크 유효성 검사 |
+| 📸 **스크린샷** | Playwright Chromium 페이지 캡처 |
+| 📄 **HTML 보고서** | 3개 검사 결과 통합 증적자료 생성 |
+
+## 🛠 기술 스택
+
+- **Backend**: Node.js + Express
+- **검사 엔진**: axe-core (접근성) + nspell (영문 맞춤법)
+- **브라우저**: Playwright Chromium (headless)
+- **컨테이너**: Docker (mcr.microsoft.com/playwright)
+
+## 로컬 실행
+
 ```bash
+# 의존성 설치
 npm install
 npx playwright install chromium
 npx playwright install-deps chromium
-```
 
-### 서버 시작 (PM2)
-```bash
-pm2 start ecosystem.config.cjs
-```
-
-### 서버 시작 (직접)
-```bash
+# 서버 시작
 node server.js
+# 접속: http://localhost:3000
 ```
 
-접속: http://localhost:3000
-
-## API 엔드포인트
+## API
 
 ### POST /api/scan
-웹사이트 접근성 검사 실행
-
-**요청**:
 ```json
 {
   "url": "https://example.com",
   "level": "wcag2aa",
-  "includeScreenshot": true
-}
-```
-
-**응답**:
-```json
-{
-  "id": "1234567890",
-  "scannedAt": "2026-03-03T00:00:00.000Z",
-  "url": "https://example.com",
-  "pageTitle": "Example Domain",
-  "level": "wcag2aa",
-  "score": 84,
-  "summary": {
-    "violations": 1,
-    "passes": 30,
-    "incomplete": 2,
-    "inapplicable": 45,
-    "impactCounts": { "critical": 0, "serious": 1, "moderate": 0, "minor": 0 }
-  },
-  "violations": [...],
-  "screenshot": "base64encodedimage..."
+  "includeScreenshot": true,
+  "checkSpelling": true,
+  "checkLinks": true
 }
 ```
 
 ### POST /api/report
-HTML 증적보고서 생성 (검사 결과를 body로 전달)
-
-**응답**: HTML 파일 다운로드
-
-## WCAG 검사 레벨
-
-| 레벨 | 설명 | 권장 |
-|------|------|------|
-| Level A | 기본 접근성 요구사항 | - |
-| **Level AA** | **국내외 표준 권장 수준** | **✅ 권장** |
-| Level AAA | 최고 수준의 접근성 | - |
-
-## 증적자료 포함 내용
-- 검사 대상 URL 및 페이지 제목
-- 검사 일시 및 검사 기준 레벨
-- 페이지 스크린샷 (optional)
-- 종합 점수 (0~100)
-- 심각도별 위반 항목 수
-- 위반 항목 상세 (ID, 설명, 영향받는 HTML 요소)
-- WCAG 가이드라인 링크
-
-## 프로젝트 구조
-```
-webapp/
-├── server.js              # Express 서버 + API 라우터
-├── public/
-│   └── index.html         # 프론트엔드 SPA
-├── ecosystem.config.cjs   # PM2 설정
-├── logs/                  # 서버 로그
-├── package.json
-└── README.md
-```
-
-## 주의사항
-- 자동 검사는 전체 접근성 이슈의 약 30~40%만 탐지 가능
-- 완전한 접근성 보장을 위해 전문가 수동 검사 병행 권장
-- 일부 사이트는 headless 브라우저 접근을 차단할 수 있음
+검사 결과(JSON)를 body로 전달 → HTML 보고서 파일 다운로드

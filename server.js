@@ -16,19 +16,7 @@ app.use(cors())
 app.use(express.json({ limit: '10mb' }))
 app.use(express.static(join(__dirname, 'public')))
 
-// ─── nspell 사전 초기화 (영문 .aff/.dic 직접 로드) ───
-let spellChecker = null
-try {
-  const nspell = require('nspell')
-  const affPath = join(__dirname, 'node_modules/dictionary-en/index.aff')
-  const dicPath = join(__dirname, 'node_modules/dictionary-en/index.dic')
-  const aff = readFileSync(affPath)
-  const dic = readFileSync(dicPath)
-  spellChecker = nspell({ aff, dic })
-  console.log('✅ 영문 spell checker 로드 완료')
-} catch (e) {
-  console.warn('⚠️  spell checker 초기화 실패:', e.message)
-}
+// 영문 spell checker 미사용 (한국어 전용 오탈자 검사)
 
 // ─── 유틸 함수 ────────────────────────────────────────
 function escapeHtml(str) {
@@ -88,28 +76,7 @@ function checkKoreanTypo(text) {
   return issues
 }
 
-// ─── 영문 오탈자 검사 ─────────────────────────────────
-function checkEnglishTypo(text) {
-  if (!spellChecker) return []
-  const issues = []
-  // 영어 단어 추출 (최소 4글자, 대문자 전용 제외, 숫자 포함 제외)
-  const words = text.match(/\b[a-z][a-z]{3,}\b/g) || []
-  const checked = new Set()
-  // 기술 용어 화이트리스트
-  const whitelist = new Set(['html','css','url','api','http','https','www','com','org','net','gov','edu','img','src','alt','div','nav','btn','nav','svg','xml','json','dom','ui','ux','wcag','aria','png','jpg','pdf','id','px','em','rem','vh','vw'])
-  for (const word of words) {
-    const lw = word.toLowerCase()
-    if (checked.has(lw) || whitelist.has(lw) || lw.length < 4) continue
-    checked.add(lw)
-    if (!spellChecker.correct(lw)) {
-      const suggestions = spellChecker.suggest(lw).slice(0, 3)
-      const idx = text.toLowerCase().indexOf(lw)
-      const ctx = idx >= 0 ? text.substring(Math.max(0, idx - 20), Math.min(text.length, idx + 30)) : ''
-      issues.push({ word, suggestion: suggestions.join(', ') || '(제안 없음)', context: ctx, type: 'english' })
-    }
-  }
-  return issues
-}
+// 영문 오탈자 검사 제거 (한국어 전용)
 
 // ─── 데드링크 검사 ────────────────────────────────────
 async function checkDeadLinks(links, baseUrl, page) {
@@ -254,16 +221,13 @@ app.post('/api/scan', async (req, res) => {
       })
 
       const koIssues = checkKoreanTypo(pageText)
-      const enIssues = checkEnglishTypo(pageText)
-      const allIssues = [...koIssues, ...enIssues]
       const wordCount = pageText.split(/\s+/).filter(w => w.length > 0).length
 
       spellingResult = {
-        issues: allIssues.slice(0, 50), // 최대 50개
+        issues: koIssues.slice(0, 50), // 최대 50개
         totalWords: wordCount,
-        totalIssues: allIssues.length,
+        totalIssues: koIssues.length,
         koreanIssues: koIssues.length,
-        englishIssues: enIssues.length,
         checkedAt: new Date().toISOString()
       }
     }
@@ -493,13 +457,9 @@ app.post('/api/report', (req, res) => {
         <div style="font-size:22px;font-weight:800;color:#7c3aed">${sp.koreanIssues||0}</div>
         <div style="font-size:11px;color:#64748b">한글 오탈자</div>
       </div>
-      <div style="background:#ecfeff;padding:10px 16px;border-radius:8px;text-align:center;min-width:100px">
-        <div style="font-size:22px;font-weight:800;color:#0891b2">${sp.englishIssues||0}</div>
-        <div style="font-size:11px;color:#64748b">영문 오탈자</div>
-      </div>
       <div style="background:#f8fafc;padding:10px 16px;border-radius:8px;text-align:center;min-width:100px">
         <div style="font-size:22px;font-weight:800;color:#64748b">${sp.totalWords||0}</div>
-        <div style="font-size:11px;color:#64748b">검사 단어 수</div>
+        <div style="font-size:11px;color:#64748b">검사 어절 수</div>
       </div>
     </div>
     ${spellingHtml}
@@ -531,7 +491,7 @@ app.post('/api/report', (req, res) => {
   </div>
 
   <div class="footer">
-    <p>본 보고서는 A11y Inspector 자동 검사 결과입니다. (axe-core + nspell + Playwright)</p>
+    <p>본 보고서는 A11y Inspector 자동 검사 결과입니다. (axe-core + Playwright)</p>
     <p>자동 검사는 전체 이슈의 일부만 탐지할 수 있으며, 전문가 수동 검토를 병행하시기 바랍니다.</p>
     <p style="margin-top:6px;color:#cbd5e1">생성: ${new Date().toLocaleString('ko-KR')}</p>
   </div>

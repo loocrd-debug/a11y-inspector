@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>웹 접근성 검사 도구 (A11y Inspector)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    body { font-family: 'Inter', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; }
+    .gradient-bg { background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 100%); }
+    .card { background: white; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.05); }
+    .spinner { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .violation-item { transition: all 0.2s; }
+    .violation-item:hover { transform: translateX(4px); }
+    .progress-bar { transition: width 1s ease-in-out; }
+    .fade-in { animation: fadeIn 0.5s ease-in-out; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .tab-btn.active { background: #2563eb; color: white; }
+    .tab-btn { transition: all 0.2s; }
+    .node-html { font-family: 'Fira Code', 'Courier New', monospace; font-size: 11px; }
+    .score-ring { transform: rotate(-90deg); transform-origin: center; }
+    input:focus { outline: none; box-shadow: 0 0 0 3px rgba(37,99,235,0.2); }
+    .impact-critical { border-left-color: #dc2626 !important; }
+    .impact-serious  { border-left-color: #ea580c !important; }
+    .impact-moderate { border-left-color: #d97706 !important; }
+    .impact-minor    { border-left-color: #65a30d !important; }
+    details > summary { cursor: pointer; user-select: none; }
+    details > summary::-webkit-details-marker { display: none; }
+  </style>
+</head>
+<body class="bg-slate-50 min-h-screen">
+
+<!-- ═══════════════════ HEADER ═══════════════════ -->
+<header class="gradient-bg text-white py-8 px-4 shadow-lg">
+  <div class="max-w-5xl mx-auto">
+    <div class="flex items-center gap-3 mb-2">
+      <span class="text-4xl">♿</span>
+      <div>
+        <h1 class="text-3xl font-extrabold tracking-tight">A11y Inspector</h1>
+        <p class="text-blue-200 text-sm mt-0.5">웹사이트 접근성 자동 검사 & 증적자료 생성 도구</p>
+      </div>
+    </div>
+    <div class="flex gap-4 mt-4 text-sm text-blue-200">
+      <span><i class="fas fa-check-circle mr-1 text-green-300"></i> WCAG 2.1 기반</span>
+      <span><i class="fas fa-camera mr-1 text-yellow-300"></i> 스크린샷 포함</span>
+      <span><i class="fas fa-file-download mr-1 text-purple-300"></i> HTML 보고서 생성</span>
+      <span><i class="fas fa-bolt mr-1 text-orange-300"></i> axe-core 엔진</span>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════════════ MAIN ═══════════════════ -->
+<main class="max-w-5xl mx-auto px-4 py-8">
+
+  <!-- 검사 입력 폼 -->
+  <div class="card p-8 mb-6">
+    <h2 class="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
+      <i class="fas fa-search text-blue-500"></i> 접근성 검사 시작
+    </h2>
+    <div class="space-y-4">
+      <div>
+        <label class="block text-sm font-semibold text-slate-700 mb-2">
+          <i class="fas fa-globe mr-1 text-slate-500"></i> 검사할 웹사이트 URL
+        </label>
+        <input id="urlInput" type="url" placeholder="https://example.com"
+          class="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 text-base bg-slate-50 focus:bg-white transition-colors"
+          value="" />
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-2">
+            <i class="fas fa-layer-group mr-1 text-slate-500"></i> WCAG 검사 레벨
+          </label>
+          <select id="levelSelect" class="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-200">
+            <option value="wcag2a">WCAG 2.1 Level A (기본)</option>
+            <option value="wcag2aa" selected>WCAG 2.1 Level AA (권장)</option>
+            <option value="wcag2aaa">WCAG 2.1 Level AAA (최고)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-semibold text-slate-700 mb-2">
+            <i class="fas fa-camera mr-1 text-slate-500"></i> 스크린샷 포함
+          </label>
+          <div class="flex items-center gap-3 h-12">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="screenshot" value="true" checked class="w-4 h-4 accent-blue-600" />
+              <span class="text-slate-700 text-sm">포함</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="radio" name="screenshot" value="false" class="w-4 h-4 accent-blue-600" />
+              <span class="text-slate-700 text-sm">제외</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <button id="scanBtn" onclick="startScan()"
+        class="w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold py-4 px-6 rounded-xl text-base transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2">
+        <i class="fas fa-play"></i> 접근성 검사 시작
+      </button>
+    </div>
+  </div>
+
+  <!-- 로딩 -->
+  <div id="loadingBox" class="card p-8 mb-6 hidden text-center">
+    <i class="fas fa-circle-notch spinner text-blue-500 text-4xl mb-4"></i>
+    <p class="text-lg font-semibold text-slate-700 mb-2" id="loadingText">페이지를 불러오는 중...</p>
+    <p class="text-slate-500 text-sm">브라우저로 페이지를 열고 접근성을 분석합니다. 잠시 기다려주세요.</p>
+    <div class="mt-4 bg-slate-100 rounded-full h-2 overflow-hidden">
+      <div id="progressBar" class="progress-bar bg-blue-500 h-2 rounded-full" style="width: 0%"></div>
+    </div>
+  </div>
+
+  <!-- 에러 -->
+  <div id="errorBox" class="card p-6 mb-6 hidden border-l-4 border-red-500 bg-red-50">
+    <div class="flex items-center gap-3">
+      <i class="fas fa-exclamation-triangle text-red-500 text-2xl"></i>
+      <div>
+        <p class="font-bold text-red-700">검사 중 오류가 발생했습니다</p>
+        <p id="errorMsg" class="text-red-600 text-sm mt-1"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 결과 영역 -->
+  <div id="resultArea" class="hidden fade-in">
+
+    <!-- 요약 카드 -->
+    <div id="summaryCard" class="card p-8 mb-6">
+      <div class="flex items-start justify-between mb-6 flex-wrap gap-4">
+        <div>
+          <h2 class="text-xl font-bold text-slate-800 mb-1">검사 결과 요약</h2>
+          <p id="resultUrl" class="text-slate-500 text-sm font-mono truncate max-w-xs sm:max-w-md"></p>
+          <p id="resultTime" class="text-slate-400 text-xs mt-1"></p>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="downloadReport()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg text-sm transition-all shadow">
+            <i class="fas fa-file-download"></i> HTML 보고서 다운로드
+          </button>
+          <button onclick="printReport()" class="flex items-center gap-2 bg-slate-600 hover:bg-slate-700 text-white font-semibold py-2 px-4 rounded-lg text-sm transition-all shadow">
+            <i class="fas fa-print"></i> 인쇄
+          </button>
+        </div>
+      </div>
+
+      <!-- 점수 + 통계 -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- 점수 -->
+        <div class="flex flex-col items-center justify-center p-4">
+          <div class="relative w-36 h-36">
+            <svg viewBox="0 0 120 120" class="w-full h-full">
+              <circle cx="60" cy="60" r="50" fill="none" stroke="#e2e8f0" stroke-width="12"/>
+              <circle id="scoreArc" cx="60" cy="60" r="50" fill="none" stroke="#22c55e" stroke-width="12"
+                stroke-dasharray="314" stroke-dashoffset="314" stroke-linecap="round" class="score-ring"/>
+            </svg>
+            <div class="absolute inset-0 flex flex-col items-center justify-center">
+              <span id="scoreNum" class="text-4xl font-extrabold text-slate-800">–</span>
+              <span class="text-xs text-slate-500 font-medium">/ 100</span>
+            </div>
+          </div>
+          <p id="scoreLabel" class="mt-3 font-bold text-lg"></p>
+          <p id="wcagBadge" class="mt-1 text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-semibold"></p>
+        </div>
+
+        <!-- 통계 -->
+        <div class="lg:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div id="statViolation" class="rounded-xl p-4 bg-red-50 border border-red-100 text-center">
+            <div class="text-3xl font-extrabold text-red-500 mb-1">–</div>
+            <div class="text-xs font-semibold text-red-700"><i class="fas fa-times-circle mr-1"></i>위반 항목</div>
+          </div>
+          <div class="rounded-xl p-4 bg-green-50 border border-green-100 text-center">
+            <div id="statPass" class="text-3xl font-extrabold text-green-500 mb-1">–</div>
+            <div class="text-xs font-semibold text-green-700"><i class="fas fa-check-circle mr-1"></i>통과 항목</div>
+          </div>
+          <div class="rounded-xl p-4 bg-amber-50 border border-amber-100 text-center">
+            <div id="statIncomplete" class="text-3xl font-extrabold text-amber-500 mb-1">–</div>
+            <div class="text-xs font-semibold text-amber-700"><i class="fas fa-question-circle mr-1"></i>검토 필요</div>
+          </div>
+          <div class="rounded-xl p-4 bg-slate-50 border border-slate-200 text-center">
+            <div id="statInapplicable" class="text-3xl font-extrabold text-slate-400 mb-1">–</div>
+            <div class="text-xs font-semibold text-slate-500"><i class="fas fa-minus-circle mr-1"></i>해당 없음</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 심각도별 바 -->
+      <div class="mt-6">
+        <p class="text-sm font-semibold text-slate-600 mb-3">심각도별 위반 항목</p>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="impactBars"></div>
+      </div>
+    </div>
+
+    <!-- 스크린샷 -->
+    <div id="screenshotCard" class="card p-8 mb-6 hidden">
+      <h2 class="text-xl font-bold text-slate-800 mb-4 flex items-center gap-2">
+        <i class="fas fa-camera text-blue-500"></i> 페이지 스크린샷
+        <span class="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-normal ml-auto">증적자료</span>
+      </h2>
+      <img id="screenshotImg" src="" alt="페이지 스크린샷" class="rounded-xl border border-slate-200 shadow-sm max-w-full" />
+    </div>
+
+    <!-- 탭 네비게이션 -->
+    <div class="card mb-6 overflow-hidden">
+      <div class="flex border-b border-slate-200 bg-slate-50 p-1.5 gap-1.5">
+        <button class="tab-btn active flex-1 py-2.5 px-4 rounded-lg font-semibold text-sm" onclick="switchTab('violations', this)">
+          <i class="fas fa-exclamation-triangle mr-1"></i> 위반 항목
+          <span id="tabBadge" class="ml-1 bg-red-500 text-white text-xs px-1.5 py-0.5 rounded-full"></span>
+        </button>
+        <button class="tab-btn flex-1 py-2.5 px-4 rounded-lg font-semibold text-sm text-slate-600 hover:bg-slate-200" onclick="switchTab('chart', this)">
+          <i class="fas fa-chart-pie mr-1"></i> 분석 차트
+        </button>
+      </div>
+
+      <!-- 위반 항목 탭 -->
+      <div id="tab-violations" class="p-6">
+        <!-- 필터 -->
+        <div class="flex flex-wrap gap-2 mb-5">
+          <span class="text-sm font-semibold text-slate-600 self-center mr-1">필터:</span>
+          <button onclick="filterViolations('all')" class="filter-btn active-filter py-1.5 px-3 rounded-lg text-sm font-medium border border-slate-200 hover:border-slate-400 transition-all" data-filter="all">전체</button>
+          <button onclick="filterViolations('critical')" class="filter-btn py-1.5 px-3 rounded-lg text-sm font-medium border border-red-200 text-red-600 hover:bg-red-50 transition-all" data-filter="critical"><i class="fas fa-circle mr-1"></i>치명적</button>
+          <button onclick="filterViolations('serious')" class="filter-btn py-1.5 px-3 rounded-lg text-sm font-medium border border-orange-200 text-orange-600 hover:bg-orange-50 transition-all" data-filter="serious"><i class="fas fa-circle mr-1"></i>심각</button>
+          <button onclick="filterViolations('moderate')" class="filter-btn py-1.5 px-3 rounded-lg text-sm font-medium border border-amber-200 text-amber-600 hover:bg-amber-50 transition-all" data-filter="moderate"><i class="fas fa-circle mr-1"></i>보통</button>
+          <button onclick="filterViolations('minor')" class="filter-btn py-1.5 px-3 rounded-lg text-sm font-medium border border-lime-200 text-lime-600 hover:bg-lime-50 transition-all" data-filter="minor"><i class="fas fa-circle mr-1"></i>경미</button>
+        </div>
+        <div id="violationsList"></div>
+        <div id="noViolations" class="hidden text-center py-16">
+          <div class="text-6xl mb-4">🎉</div>
+          <p class="text-xl font-bold text-green-600">위반 항목 없음!</p>
+          <p class="text-slate-500 mt-2">선택한 WCAG 레벨의 모든 검사를 통과했습니다.</p>
+        </div>
+      </div>
+
+      <!-- 차트 탭 -->
+      <div id="tab-chart" class="p-6 hidden">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+          <div>
+            <h3 class="font-semibold text-slate-700 mb-3 text-center">심각도 분포</h3>
+            <canvas id="impactChart" height="250"></canvas>
+          </div>
+          <div>
+            <h3 class="font-semibold text-slate-700 mb-3 text-center">검사 결과 현황</h3>
+            <canvas id="summaryChart" height="250"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /resultArea -->
+
+</main>
+
+<!-- ═══════════════════ FOOTER ═══════════════════ -->
+<footer class="text-center text-slate-400 text-xs py-6 border-t border-slate-200 mt-4">
+  <p>A11y Inspector &nbsp;|&nbsp; Powered by <a href="https://www.deque.com/axe/" class="text-blue-400 hover:underline">axe-core</a> &amp; Playwright &nbsp;|&nbsp; WCAG 2.1 기준</p>
+</footer>
+
+<script>
+// ─── 전역 상태 ─────────────────────────────────────────
+let scanResult = null
+let impactChart = null
+let summaryChart = null
+let progressInterval = null
+
+const IMPACT_CONFIG = {
+  critical: { label: '치명적', color: '#dc2626', bg: 'bg-red-100', text: 'text-red-700', border: 'border-red-200', icon: 'fa-skull' },
+  serious:  { label: '심각',   color: '#ea580c', bg: 'bg-orange-100', text: 'text-orange-700', border: 'border-orange-200', icon: 'fa-exclamation-circle' },
+  moderate: { label: '보통',   color: '#d97706', bg: 'bg-amber-100', text: 'text-amber-700', border: 'border-amber-200', icon: 'fa-exclamation-triangle' },
+  minor:    { label: '경미',   color: '#65a30d', bg: 'bg-lime-100', text: 'text-lime-700', border: 'border-lime-200', icon: 'fa-info-circle' }
+}
+
+// ─── 검사 시작 ─────────────────────────────────────────
+async function startScan() {
+  const url = document.getElementById('urlInput').value.trim()
+  if (!url) { alert('URL을 입력해주세요.'); return }
+  const level = document.getElementById('levelSelect').value
+  const includeScreenshot = document.querySelector('input[name="screenshot"]:checked').value === 'true'
+
+  // UI 초기화
+  document.getElementById('errorBox').classList.add('hidden')
+  document.getElementById('resultArea').classList.add('hidden')
+  document.getElementById('loadingBox').classList.remove('hidden')
+  document.getElementById('scanBtn').disabled = true
+  document.getElementById('scanBtn').innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i> 검사 중...'
+
+  // 진행바 애니메이션
+  let prog = 0
+  document.getElementById('progressBar').style.width = '0%'
+  const msgs = ['브라우저를 실행하는 중...', '페이지를 불러오는 중...', '접근성을 분석하는 중...', '결과를 정리하는 중...']
+  let msgIdx = 0
+  progressInterval = setInterval(() => {
+    prog = Math.min(prog + (prog < 70 ? 3 : 1), 92)
+    document.getElementById('progressBar').style.width = prog + '%'
+    if (prog % 25 === 0 && msgIdx < msgs.length) {
+      document.getElementById('loadingText').textContent = msgs[Math.min(msgIdx++, msgs.length-1)]
+    }
+  }, 300)
+
+  try {
+    const res = await fetch('/api/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, level, includeScreenshot })
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || '서버 오류가 발생했습니다.')
+
+    clearInterval(progressInterval)
+    document.getElementById('progressBar').style.width = '100%'
+    setTimeout(() => {
+      document.getElementById('loadingBox').classList.add('hidden')
+      scanResult = data
+      renderResults(data)
+      document.getElementById('resultArea').classList.remove('hidden')
+      document.getElementById('resultArea').scrollIntoView({ behavior: 'smooth' })
+    }, 400)
+
+  } catch(e) {
+    clearInterval(progressInterval)
+    document.getElementById('loadingBox').classList.add('hidden')
+    document.getElementById('errorBox').classList.remove('hidden')
+    document.getElementById('errorMsg').textContent = e.message
+  } finally {
+    document.getElementById('scanBtn').disabled = false
+    document.getElementById('scanBtn').innerHTML = '<i class="fas fa-play"></i> 접근성 검사 시작'
+  }
+}
+
+// ─── 결과 렌더링 ──────────────────────────────────────
+function renderResults(data) {
+  // 헤더 정보
+  document.getElementById('resultUrl').textContent = data.url
+  document.getElementById('resultTime').textContent = '검사 일시: ' + new Date(data.scannedAt).toLocaleString('ko-KR')
+  document.getElementById('wcagBadge').textContent = data.level.toUpperCase()
+
+  // 점수
+  const score = data.score
+  const scoreColor = score >= 80 ? '#22c55e' : score >= 50 ? '#f59e0b' : '#ef4444'
+  const scoreLabel = score >= 80 ? '양호 ✅' : score >= 50 ? '개선 필요 ⚠️' : '위험 ❌'
+  const arcLen = 314
+  const offset = arcLen - (arcLen * score / 100)
+  document.getElementById('scoreNum').textContent = score
+  document.getElementById('scoreArc').style.stroke = scoreColor
+  document.getElementById('scoreArc').style.strokeDashoffset = offset
+  document.getElementById('scoreLabel').textContent = scoreLabel
+  document.getElementById('scoreLabel').style.color = scoreColor
+
+  // 통계
+  document.getElementById('statViolation').querySelector('.text-3xl').textContent = data.summary.violations
+  document.getElementById('statPass').textContent = data.summary.passes
+  document.getElementById('statIncomplete').textContent = data.summary.incomplete
+  document.getElementById('statInapplicable').textContent = data.summary.inapplicable
+  document.getElementById('tabBadge').textContent = data.summary.violations
+
+  // 심각도 바
+  const impactHtml = Object.entries(IMPACT_CONFIG).map(([k, c]) => {
+    const cnt = data.summary.impactCounts[k] || 0
+    return `<div class="rounded-xl p-4 ${c.bg} border ${c.border} flex items-center gap-3">
+      <i class="fas ${c.icon} ${c.text} text-lg"></i>
+      <div>
+        <div class="text-2xl font-extrabold ${c.text}">${cnt}</div>
+        <div class="text-xs font-semibold ${c.text}">${c.label}</div>
+      </div>
+    </div>`
+  }).join('')
+  document.getElementById('impactBars').innerHTML = impactHtml
+
+  // 스크린샷
+  if (data.screenshot) {
+    document.getElementById('screenshotCard').classList.remove('hidden')
+    document.getElementById('screenshotImg').src = 'data:image/png;base64,' + data.screenshot
+  } else {
+    document.getElementById('screenshotCard').classList.add('hidden')
+  }
+
+  // 위반 목록 렌더
+  renderViolations(data.violations)
+
+  // 차트 (다음 탭 전환 시)
+  renderCharts(data)
+}
+
+// ─── 위반 항목 렌더 ────────────────────────────────────
+function renderViolations(violations) {
+  const container = document.getElementById('violationsList')
+  const noViol = document.getElementById('noViolations')
+
+  if (!violations || violations.length === 0) {
+    container.innerHTML = ''
+    noViol.classList.remove('hidden')
+    return
+  }
+  noViol.classList.add('hidden')
+
+  container.innerHTML = violations.map((v, i) => {
+    const c = IMPACT_CONFIG[v.impact] || IMPACT_CONFIG.minor
+    const nodesHtml = v.nodes.slice(0, 3).map(n => `
+      <div class="mt-2 p-2 bg-slate-100 rounded-lg">
+        <div class="node-html text-slate-600 break-all">${escHtml(n.html)}</div>
+        ${n.failureSummary ? `<div class="text-xs text-slate-500 mt-1 italic">${escHtml(n.failureSummary)}</div>` : ''}
+      </div>
+    `).join('')
+    return `
+    <details class="violation-item mb-3 rounded-xl border-l-4 impact-${v.impact} bg-white shadow-sm border border-slate-100 overflow-hidden">
+      <summary class="flex items-center justify-between p-4 hover:bg-slate-50 transition-colors">
+        <div class="flex items-center gap-3 flex-1 min-w-0">
+          <span class="text-slate-400 font-mono text-sm w-6 shrink-0">${String(i+1).padStart(2,'0')}</span>
+          <i class="fas ${c.icon} ${c.text} shrink-0"></i>
+          <div class="min-w-0">
+            <p class="font-semibold text-slate-800 text-sm truncate">${escHtml(v.help)}</p>
+            <p class="text-xs text-slate-500 font-mono mt-0.5">${v.id}</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0 ml-2">
+          <span class="hidden sm:inline-flex items-center gap-1 text-xs font-semibold ${c.bg} ${c.text} px-2.5 py-1 rounded-full">
+            <i class="fas ${c.icon}"></i> ${c.label}
+          </span>
+          <span class="text-xs bg-slate-100 text-slate-600 px-2 py-1 rounded-full">${v.nodes.length}개 요소</span>
+          <i class="fas fa-chevron-down text-slate-400 text-xs"></i>
+        </div>
+      </summary>
+      <div class="px-4 pb-4 border-t border-slate-100 pt-3">
+        <p class="text-sm text-slate-600 mb-3">${escHtml(v.description)}</p>
+        <div class="flex flex-wrap gap-2 mb-3">
+          ${v.tags.map(t => `<span class="text-xs bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">${t}</span>`).join('')}
+        </div>
+        <a href="${v.helpUrl}" target="_blank" class="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mb-3">
+          <i class="fas fa-external-link-alt"></i> WCAG 가이드라인 보기
+        </a>
+        <div>
+          <p class="text-xs font-bold text-slate-600 mb-1">영향받는 HTML 요소 (${v.nodes.length}개 중 최대 3개 표시)</p>
+          ${nodesHtml}
+          ${v.nodes.length > 3 ? `<p class="text-xs text-slate-400 mt-2 text-center">... 외 ${v.nodes.length-3}개 요소</p>` : ''}
+        </div>
+      </div>
+    </details>`
+  }).join('')
+}
+
+// ─── 필터 ─────────────────────────────────────────────
+function filterViolations(impact) {
+  document.querySelectorAll('.filter-btn').forEach(b => {
+    b.classList.toggle('active-filter', b.dataset.filter === impact)
+    b.classList.toggle('bg-slate-800', b.dataset.filter === impact)
+    b.classList.toggle('text-white', b.dataset.filter === impact)
+    b.classList.toggle('border-slate-800', b.dataset.filter === impact)
+  })
+  if (!scanResult) return
+  const filtered = impact === 'all' ? scanResult.violations : scanResult.violations.filter(v => v.impact === impact)
+  renderViolations(filtered)
+}
+
+// ─── 차트 ─────────────────────────────────────────────
+function renderCharts(data) {
+  const ic = data.summary.impactCounts
+  if (impactChart) impactChart.destroy()
+  if (summaryChart) summaryChart.destroy()
+
+  const ctx1 = document.getElementById('impactChart')
+  impactChart = new Chart(ctx1, {
+    type: 'doughnut',
+    data: {
+      labels: ['치명적', '심각', '보통', '경미'],
+      datasets: [{
+        data: [ic.critical||0, ic.serious||0, ic.moderate||0, ic.minor||0],
+        backgroundColor: ['#dc2626','#ea580c','#d97706','#65a30d'],
+        borderWidth: 2, borderColor: '#fff'
+      }]
+    },
+    options: { responsive: true, plugins: { legend: { position: 'bottom' } } }
+  })
+
+  const ctx2 = document.getElementById('summaryChart')
+  summaryChart = new Chart(ctx2, {
+    type: 'bar',
+    data: {
+      labels: ['위반', '통과', '검토필요', '해당없음'],
+      datasets: [{
+        data: [data.summary.violations, data.summary.passes, data.summary.incomplete, data.summary.inapplicable],
+        backgroundColor: ['#ef4444','#22c55e','#f59e0b','#94a3b8'],
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true } }
+    }
+  })
+}
+
+// ─── 탭 전환 ──────────────────────────────────────────
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.remove('active')
+    b.classList.add('text-slate-600')
+    b.classList.remove('text-white')
+  })
+  btn.classList.add('active')
+  btn.classList.remove('text-slate-600')
+  document.getElementById('tab-violations').classList.add('hidden')
+  document.getElementById('tab-chart').classList.add('hidden')
+  document.getElementById('tab-' + name).classList.remove('hidden')
+}
+
+// ─── 보고서 다운로드 ───────────────────────────────────
+async function downloadReport() {
+  if (!scanResult) return
+  try {
+    const res = await fetch('/api/report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(scanResult)
+    })
+    const blob = await res.blob()
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `a11y-report-${Date.now()}.html`
+    a.click()
+  } catch(e) {
+    alert('보고서 생성 중 오류: ' + e.message)
+  }
+}
+
+// ─── 인쇄 ─────────────────────────────────────────────
+async function printReport() {
+  if (!scanResult) return
+  try {
+    const res = await fetch('/api/report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(scanResult)
+    })
+    const html = await res.text()
+    const win = window.open('', '_blank')
+    win.document.write(html)
+    win.document.close()
+    setTimeout(() => win.print(), 800)
+  } catch(e) {
+    alert('인쇄 준비 중 오류: ' + e.message)
+  }
+}
+
+// ─── Enter 키 검사 ────────────────────────────────────
+document.getElementById('urlInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') startScan()
+})
+
+// ─── 유틸 ─────────────────────────────────────────────
+function escHtml(s) {
+  if (!s) return ''
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+</script>
+</body>
+</html>

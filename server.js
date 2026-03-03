@@ -515,9 +515,11 @@ app.post('/api/report', (req, res) => {
 const batchSessions = new Map()
 const evidenceStore = new Map()
 
-// 민원 목록 조회 (plus.gov.kr API 활용)
+// 민원 목록 조회 (plus.gov.kr API 활용 → www.gov.kr/mw 민원안내 URL 사용)
 app.get('/api/minwon/list', async (req, res) => {
   const { page = 1, pageSize = 20, query = '' } = req.query
+  // GOV24_URL 기준으로 중복이 많으므로 실제 표시할 수보다 더 많이 가져옴
+  const fetchSize = Math.min(parseInt(pageSize) * 4, 200)
   const startCount = (parseInt(page) - 1) * parseInt(pageSize)
 
   try {
@@ -532,7 +534,7 @@ app.get('/api/minwon/list', async (req, res) => {
       body: JSON.stringify({
         query: query || '',
         startCount: String(startCount),
-        listCount: String(pageSize),
+        listCount: String(fetchSize),
         collections: 'IW_SERVICE',
         sortField: 'WEIGHT/DESC,RANK/DESC,INQ_CNT/DESC,TYPE_SN/ASC,UID/ASC',
         docId: ''
@@ -543,16 +545,34 @@ app.get('/api/minwon/list', async (req, res) => {
     const mergeResult = data.searchMergeResult?.MERGE_COLLECTION || []
     const totalCount = data.totalCount || 0
 
-    const items = mergeResult.map(item => ({
-      id: item.DOCID,
-      title: item.TITLE || '',
-      content: item.CONTENT ? item.CONTENT.substring(0, 100) : '',
-      category: item.L_CATEGORY ? item.L_CATEGORY.split('#')[1] || item.L_CATEGORY : '',
-      subCategory: item.M_CATEGORY ? item.M_CATEGORY.split('#')[1] || item.M_CATEGORY : '',
-      department: item.DEPARTMENT || '',
-      url: item.DETAIL_URL ? `https://plus.gov.kr${item.DETAIL_URL}` : null,
-      detailPath: item.DETAIL_URL || ''
-    })).filter(item => item.url)
+    // GOV24_URL 기준으로 www.gov.kr/mw URL 생성, 로그인 없이 접근 가능한 민원안내 페이지만 포함
+    // GOV24_URL 예시: /mw/AA020InfoCappView.do?&CappBizCD=13100000026&tp_seq=01
+    const seenUrls = new Set()
+    const items = []
+    for (const item of mergeResult) {
+      if (!item.GOV24_URL) continue
+      // CappBizCD 추출
+      const bizCdMatch = item.GOV24_URL.match(/CappBizCD=(\w+)/)
+      if (!bizCdMatch) continue
+      const cappBizCd = bizCdMatch[1]
+      // 로그인 필요 없는 민원안내 URL (AA020InfoCappView.do)
+      const govUrl = `https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=${cappBizCd}`
+      // CappBizCD 기준으로 중복 제거
+      if (seenUrls.has(cappBizCd)) continue
+      seenUrls.add(cappBizCd)
+      items.push({
+        id: cappBizCd,
+        docId: item.DOCID,
+        title: item.TITLE || '',
+        content: item.CONTENT ? item.CONTENT.substring(0, 100) : '',
+        category: item.L_CATEGORY ? item.L_CATEGORY.split('#')[1] || item.L_CATEGORY : '',
+        subCategory: item.M_CATEGORY ? item.M_CATEGORY.split('#')[1] || item.M_CATEGORY : '',
+        department: item.DEPARTMENT || '',
+        url: govUrl,
+        cappBizCd
+      })
+      if (items.length >= parseInt(pageSize)) break
+    }
 
     res.json({
       total: totalCount,
@@ -1071,7 +1091,7 @@ function generateBatchReportHtml(session) {
 <div class="header">
   <div style="max-width:1100px;margin:0 auto">
     <h1>📋 배치 검사 종합 증적 보고서</h1>
-    <div class="meta">🏛 대상: 정부24 민원안내 페이지</div>
+    <div class="meta">🏛 대상: 정부24(www.gov.kr/mw) 민원안내 페이지</div>
     <div class="meta">📅 검사 일시: ${new Date(session.createdAt).toLocaleString('ko-KR')} ~ ${session.finishedAt ? new Date(session.finishedAt).toLocaleString('ko-KR') : '진행중'}</div>
     <div class="meta">🆔 세션 ID: ${escapeHtml(session.id)}</div>
     <div class="meta">📊 총 ${session.total}개 페이지 | 완료 ${session.completed}개 | 실패 ${session.failed}개</div>

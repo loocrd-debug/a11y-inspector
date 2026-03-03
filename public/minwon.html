@@ -40,7 +40,7 @@
             <i class="fas fa-building-columns"></i>
             정부24 민원안내 페이지 일괄 검사
           </h1>
-          <p class="text-xs text-white/70 mt-0.5">plus.gov.kr/minwon 민원안내 페이지 접근성·오탈자·링크 자동 검사 및 증적 생성</p>
+          <p class="text-xs text-white/70 mt-0.5">www.gov.kr/mw 민원안내 페이지 (로그인 불필요) 접근성·오탈자·링크 자동 검사 및 증적 생성</p>
         </div>
       </div>
       <div class="flex gap-2">
@@ -75,7 +75,7 @@
               <i class="fas fa-search text-blue-600"></i>
               민원안내 페이지 목록 검색
             </h2>
-            <p class="text-xs text-gray-500 mt-0.5">검사할 민원안내 페이지를 선택하여 배치 스캔에 추가하세요.</p>
+            <p class="text-xs text-gray-500 mt-0.5">검사할 민원안내 페이지를 선택하여 배치 스캔에 추가하세요. 검사 URL은 <code class="bg-gray-100 px-1 rounded text-blue-700">www.gov.kr/mw</code> (로그인 불필요) 기준입니다.</p>
           </div>
           <div class="flex gap-2 items-center">
             <span id="selected-count" class="text-xs font-semibold bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg">
@@ -157,14 +157,14 @@
           <div id="batch-url-list" class="space-y-2 max-h-64 overflow-y-auto mb-3">
             <div class="text-center py-8 text-gray-400 text-sm">
               <i class="fas fa-inbox text-2xl mb-2 block"></i>
-              민원 목록에서 페이지를 선택하거나<br>직접 URL을 추가하세요.
+              민원 목록에서 페이지를 선택하거나<br>www.gov.kr/mw URL을 직접 추가하세요.
             </div>
           </div>
 
           <!-- 직접 URL 추가 -->
           <div class="border-t border-gray-100 pt-3">
             <div class="flex gap-2">
-              <input type="text" id="manual-url" placeholder="https://plus.gov.kr/... 직접 입력"
+              <input type="text" id="manual-url" placeholder="https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=... 직접 입력"
                 class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                 onkeydown="if(event.key==='Enter') addManualUrl()">
               <button onclick="addManualUrl()" class="bg-gray-700 hover:bg-gray-800 text-white text-xs px-3 py-2 rounded-lg transition">
@@ -537,7 +537,7 @@
       document.getElementById('batch-count-badge').textContent = batchList.length + '개'
 
       if (batchList.length === 0) {
-        el.innerHTML = `<div class="text-center py-8 text-gray-400 text-sm"><i class="fas fa-inbox text-2xl mb-2 block"></i>민원 목록에서 페이지를 선택하거나<br>직접 URL을 추가하세요.</div>`
+        el.innerHTML = `<div class="text-center py-8 text-gray-400 text-sm"><i class="fas fa-inbox text-2xl mb-2 block"></i>민원 목록에서 페이지를 선택하거나<br>www.gov.kr/mw URL을 직접 추가하세요.</div>`
         return
       }
 
@@ -586,9 +586,11 @@
 
     function addDefaultPages() {
       const defaults = [
-        { title: '민원 찾기 (메인)', url: 'https://plus.gov.kr/minwon' },
-        { title: '정부24 다운로드파일 진본확인', url: 'https://plus.gov.kr/minwon/downloadConfirm/downloadConfirm' },
-        { title: '주소 영문 변환 서비스', url: 'https://plus.gov.kr/minwon/retrieve/service/addrengtrsf' },
+        { title: '주민등록표 등본(초본) 발급', url: 'https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13100000015' },
+        { title: '토지(임야)대장 등본 발급(열람)', url: 'https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13100000026' },
+        { title: '건축물대장 등본(초본) 발급(열람)', url: 'https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=15000000098' },
+        { title: '무인민원발급안내', url: 'https://www.gov.kr/mw/AA090NoManMinwonView.do?Mcode=11006' },
+        { title: '어디서나 민원', url: 'https://www.gov.kr/mw/AA020AnyInfoCappView.do' },
       ]
       defaults.forEach(d => {
         if (!batchList.find(b => b.url === d.url)) batchList.push(d)

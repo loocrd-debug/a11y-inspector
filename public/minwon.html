@@ -245,6 +245,13 @@
                     <div class="text-xs text-blue-400">마크업 검증</div>
                   </div>
                 </label>
+                <label class="flex items-center gap-2 p-2.5 border border-purple-200 bg-purple-50 rounded-lg cursor-pointer hover:bg-purple-100 transition">
+                  <input type="checkbox" id="opt-krds" class="w-4 h-4 rounded text-purple-600">
+                  <div>
+                    <div class="text-xs font-semibold text-purple-700"><i class="fas fa-flag mr-0.5"></i>KRDS 준수</div>
+                    <div class="text-xs text-purple-400">한국 디지털 서비스 표준</div>
+                  </div>
+                </label>
               </div>
 
               <!-- 컨테이너만 검사 옵션 -->
@@ -352,6 +359,10 @@
             <div id="kpi-w3c" class="text-3xl font-black text-orange-500">-</div>
             <div class="text-xs text-gray-500 mt-1">W3C 오류 (무효 페이지)</div>
           </div>
+          <div class="bg-white rounded-xl shadow-sm p-4 text-center" id="kpi-krds-card" style="display:none">
+            <div id="kpi-krds" class="text-3xl font-black text-purple-600">-</div>
+            <div class="text-xs text-gray-500 mt-1">KRDS 평균 준수율</div>
+          </div>
         </div>
 
         <!-- 결과 테이블 및 다운로드 -->
@@ -383,6 +394,7 @@
                   <th class="px-3 py-3 text-center w-14">오탈자</th>
                   <th class="px-3 py-3 text-center w-16">링크오류</th>
                   <th class="px-3 py-3 text-center w-20 th-w3c hidden">W3C</th>
+                  <th class="px-3 py-3 text-center w-20 th-krds hidden">KRDS</th>
                   <th class="px-3 py-3 text-center w-20">상태</th>
                   <th class="px-3 py-3 text-center w-32">증적</th>
                 </tr>
@@ -669,7 +681,8 @@
         checkLinks: _chkLinks,
         useW3CLinks: _chkLinks && document.getElementById('opt-w3c-links').checked,
         checkW3C: document.getElementById('opt-w3c').checked,
-        containerOnly: document.getElementById('opt-container').checked
+        containerOnly: document.getElementById('opt-container').checked,
+        checkKRDS: document.getElementById('opt-krds').checked
       }
 
       try {
@@ -772,6 +785,11 @@
         const totalW3cErr = data.results.reduce((s, r) => s + (r.w3c?.errorCount || 0), 0)
         const w3cInvalidCnt = data.results.filter(r => r.w3c?.valid === false).length
         const w3cChecked = data.results.some(r => r.w3c?.checkedAt)
+        const krdsChecked = data.results.some(r => r.krds)
+        const avgKrdsScore = krdsChecked
+          ? Math.round(data.results.filter(r => r.krds).reduce((s, r) => s + (r.krds.score || 0), 0) /
+              data.results.filter(r => r.krds).length)
+          : 0
 
         const scoreColor = avgScore >= 80 ? '#16a34a' : avgScore >= 50 ? '#d97706' : '#dc2626'
 
@@ -795,6 +813,21 @@
         // W3C 테이블 컬럼 헤더 표시/숨김
         document.querySelectorAll('.th-w3c').forEach(el => {
           el.classList.toggle('hidden', !w3cChecked)
+        })
+
+        // KRDS KPI 카드 표시/숨김
+        const krdsCard = document.getElementById('kpi-krds-card')
+        if (krdsChecked) {
+          krdsCard.style.display = ''
+          const krdsEl = document.getElementById('kpi-krds')
+          krdsEl.textContent = `${avgKrdsScore}%`
+          krdsEl.style.color = avgKrdsScore >= 80 ? '#16a34a' : avgKrdsScore >= 60 ? '#d97706' : '#dc2626'
+        } else {
+          krdsCard.style.display = 'none'
+        }
+        // KRDS 테이블 컬럼 헤더 표시/숨김
+        document.querySelectorAll('.th-krds').forEach(el => {
+          el.classList.toggle('hidden', !krdsChecked)
         })
 
         // 결과 테이블
@@ -843,6 +876,13 @@
                 ${r.w3c?.checkedAt
                   ? `<div class="text-xs font-bold ${(r.w3c?.errorCount||0)>0?'text-red-600':'text-green-600'}">${r.w3c?.errorCount||0}건</div>
                      <div class="text-xs ${r.w3c?.valid===false?'text-red-500':r.w3c?.valid===true?'text-green-600':'text-gray-400'}">${r.w3c?.valid===true?'유효':r.w3c?.valid===false?'무효':'-'}</div>`
+                  : '<span class="text-xs text-gray-300">-</span>'
+                }
+              </td>` : ''}
+              ${krdsChecked ? `<td class="px-3 py-3 text-center td-krds">
+                ${r.krds
+                  ? `<div class="text-xs font-bold ${(r.krds.score||0)>=80?'text-green-600':(r.krds.score||0)>=60?'text-yellow-600':'text-red-600'}">${r.krds.score||0}%</div>
+                     <div class="text-xs text-gray-400">${r.krds.passed||0}/${r.krds.total||0}항목</div>`
                   : '<span class="text-xs text-gray-300">-</span>'
                 }
               </td>` : ''}
@@ -920,7 +960,8 @@
         checkLinks: _chkLinks2,
         useW3CLinks: _chkLinks2 && document.getElementById('opt-w3c-links').checked,
         checkW3C: document.getElementById('opt-w3c').checked,
-        containerOnly: document.getElementById('opt-container').checked
+        containerOnly: document.getElementById('opt-container').checked,
+        checkKRDS: document.getElementById('opt-krds').checked
       }
 
       const queryInput = document.getElementById('search-query')
@@ -1189,6 +1230,67 @@
           }
           if (!lk.dead?.length && !lk.redirects?.length) {
             html += `<div class="bg-green-50 rounded p-3 text-center text-green-700 text-xs font-semibold">✅ 모든 링크 정상</div>`
+          }
+          html += '</div>'
+        }
+
+        // KRDS 준수 검사 결과
+        const kr = data.krds
+        if (kr && kr.items && kr.items.length > 0) {
+          const krScoreColor = (kr.score||0) >= 80 ? '#16a34a' : (kr.score||0) >= 60 ? '#d97706' : '#dc2626'
+          const failedItems = kr.items.filter(it => it.passed === false)
+          const passedItems = kr.items.filter(it => it.passed === true)
+
+          html += `<div class="mb-5">
+            <h4 class="font-bold text-gray-700 text-sm mb-3 flex items-center gap-2">
+              <i class="fas fa-flag text-purple-500"></i>
+              KRDS 준수 검사
+              <span class="font-black text-base" style="color:${krScoreColor}">${kr.score||0}%</span>
+              <span class="font-normal text-gray-500 text-xs">통과 ${kr.passed||0} / 전체 ${kr.total||0}항목
+                (필수 ${kr.mandatory?.passed||0}/${kr.mandatory?.total||0}, 권장 ${kr.recommended?.passed||0}/${kr.recommended?.total||0})</span>
+            </h4>`
+
+          // 카테고리별 그룹핑
+          const byCategory = {}
+          for (const item of kr.items) {
+            if (!byCategory[item.category]) byCategory[item.category] = []
+            byCategory[item.category].push(item)
+          }
+
+          for (const [cat, items] of Object.entries(byCategory)) {
+            const catFailed = items.filter(it => it.passed === false)
+            html += `<div class="mb-3">
+              <div class="text-xs font-bold text-gray-600 mb-1.5 flex items-center gap-1">
+                <span class="bg-gray-200 text-gray-600 px-2 py-0.5 rounded text-xs">${escHtml(cat)}</span>
+                <span class="text-gray-400">${catFailed.length > 0 ? `<span class="text-red-500">✗ ${catFailed.length}건 미준수</span>` : '<span class="text-green-600">✓ 모두 준수</span>'}</span>
+              </div>`
+            html += items.map(item => {
+              const levelBadge = item.level === '필수'
+                ? '<span class="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-xs font-semibold">필수</span>'
+                : '<span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-xs font-semibold">권장</span>'
+              const passIcon = item.passed
+                ? '<span class="text-green-600 font-bold text-xs">✓ 준수</span>'
+                : '<span class="text-red-600 font-bold text-xs">✗ 미준수</span>'
+              const borderColor = item.passed ? 'border-green-300' : (item.level === '필수' ? 'border-red-400' : 'border-yellow-400')
+              const bgColor = item.passed ? 'bg-green-50' : (item.level === '필수' ? 'bg-red-50' : 'bg-yellow-50')
+              return `
+              <div class="border-l-4 ${borderColor} ${bgColor} mb-1.5 p-2 rounded-r text-xs flex items-start justify-between gap-2">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-1 flex-wrap mb-0.5">
+                    ${levelBadge}
+                    <span class="font-semibold text-gray-800">${escHtml(item.name)}</span>
+                    ${passIcon}
+                  </div>
+                  <div class="text-gray-500 mt-0.5">${escHtml(item.detail)}</div>
+                  ${!item.passed && item.recommend ? `<div class="text-blue-600 mt-0.5 italic text-xs">💡 ${escHtml(item.recommend)}</div>` : ''}
+                </div>
+              </div>`
+            }).join('')
+            html += '</div>'
+          }
+
+          if (failedItems.length === 0) {
+            html += `<div class="bg-green-50 rounded p-3 text-center text-green-700 text-xs font-semibold mt-2">✅ 모든 KRDS 항목 준수</div>`
           }
           html += '</div>'
         }

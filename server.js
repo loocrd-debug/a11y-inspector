@@ -321,7 +321,8 @@ app.post('/api/scan', async (req, res) => {
     checkSpelling = true,
     checkLinks = true,
     useW3CLinks = false,    // W3C Link Checker 사용 여부
-    checkW3C = false
+    checkW3C = false,
+    checkKRDS: doCheckKRDS = false,  // KRDS 준수 검사 여부
   } = req.body
 
   if (!url) return res.status(400).json({ error: 'URL이 필요합니다.' })
@@ -514,6 +515,17 @@ app.post('/api/scan', async (req, res) => {
       w3cResult = await validateW3C(htmlSource, pageUrl)
     }
 
+    // ── KRDS 준수 검사 ─────────────────────────────────
+    let krdsResult = null
+    if (doCheckKRDS) {
+      try {
+        krdsResult = await checkKRDS(page, htmlSource, pageUrl)
+      } catch (e) {
+        console.error('[KRDS] 검사 오류:', e.message)
+        krdsResult = { error: e.message, score: 0, passed: 0, failed: 0, total: 0, items: [] }
+      }
+    }
+
     await browser.close()
 
     return res.json({
@@ -528,7 +540,8 @@ app.post('/api/scan', async (req, res) => {
       screenshot: screenshotBase64,
       spelling: spellingResult,
       links: linkResult,
-      w3c: w3cResult
+      w3c: w3cResult,
+      krds: krdsResult
     })
 
   } catch (err) {
@@ -1179,6 +1192,398 @@ async function validateW3C(htmlSource, pageUrl) {
   }
 }
 
+// ─── KRDS (한국 디지털 서비스 표준) 준수 검사 ────────────
+// 자동화 가능한 항목만 HTML DOM 분석으로 검사
+async function checkKRDS(page, htmlSource, pageUrl) {
+  const results = []
+
+  // 헬퍼: 항목 추가
+  function addItem(id, category, name, level, passed, detail, recommend = '') {
+    results.push({ id, category, name, level, passed, detail, recommend })
+  }
+
+  // ── 페이지 기본 구조 DOM 검사 ──────────────────────────
+  const domData = await page.evaluate(() => {
+    const doc = document
+
+    // 1. lang 속성
+    const htmlEl = doc.documentElement
+    const lang = htmlEl ? htmlEl.getAttribute('lang') || htmlEl.getAttribute('xml:lang') || '' : ''
+
+    // 2. title
+    const title = doc.title || ''
+
+    // 3. charset
+    const metaCharset = doc.querySelector('meta[charset]')?.getAttribute('charset') ||
+                        doc.querySelector('meta[http-equiv="Content-Type"]')?.getAttribute('content') || ''
+
+    // 4. viewport
+    const viewport = doc.querySelector('meta[name="viewport"]')?.getAttribute('content') || ''
+
+    // 5. favicon
+    const favicon = doc.querySelector('link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"]')
+
+    // 6. 건너뛰기 링크 (skip navigation)
+    // href="#" 이거나 id/class에 skip이 포함되거나, 내용이 "본문 바로가기" 류
+    const skipLinks = Array.from(doc.querySelectorAll('a[href]')).filter(el => {
+      const href = el.getAttribute('href') || ''
+      const text = el.textContent?.trim() || ''
+      const cls  = el.className || ''
+      const id   = el.id || ''
+      return (
+        href.startsWith('#') &&
+        (
+          /skip|jump|content|main|본문|바로가기|건너뛰기/i.test(text + cls + id)
+        )
+      )
+    })
+
+    // 7. 공식 배너 (대한민국 공식 전자정부 누리집 배너)
+    // 텍스트 "이 누리집은 대한민국 공식 전자정부 누리집입니다" 또는 특정 배너 요소
+    const allText = doc.body?.innerText || ''
+    const hasOfficialBanner = /이\s*누리집은\s*대한민국\s*공식\s*전자정부/.test(allText) ||
+      !!doc.querySelector('.official-banner, #official-banner, [class*="gov-banner"], [class*="official"]')
+
+    // 8. 헤더 존재 여부
+    const header = doc.querySelector('header, [role="banner"], #header, .header')
+
+    // 9. 푸터 존재 여부
+    const footer = doc.querySelector('footer, [role="contentinfo"], #footer, .footer')
+
+    // 10. 메인 콘텐츠 영역
+    const main = doc.querySelector('main, [role="main"], #content, #main, .main')
+
+    // 11. 네비게이션 (GNB/LNB)
+    const nav = doc.querySelector('nav, [role="navigation"]')
+
+    // 12. h1 태그 (페이지 제목)
+    const h1s = doc.querySelectorAll('h1')
+
+    // 13. 이미지 alt 속성 누락 검사
+    const imgs = Array.from(doc.querySelectorAll('img'))
+    const missingAlt = imgs.filter(img => !img.hasAttribute('alt')).map(img => ({
+      src: (img.getAttribute('src') || '').substring(0, 80),
+      html: img.outerHTML.substring(0, 120)
+    }))
+    const emptyAlt  = imgs.filter(img => img.hasAttribute('alt') && img.getAttribute('alt').trim() === '' && !img.closest('[role="presentation"]'))
+    // 장식 이미지(role="presentation" 또는 alt="") 제외한 의미있는 이미지
+    const meaningfulImgs = imgs.filter(img => img.getAttribute('alt') && img.getAttribute('alt').trim() !== '')
+
+    // 14. form 레이블 연결
+    const inputs = Array.from(doc.querySelectorAll('input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]), select, textarea'))
+    const noLabel = inputs.filter(inp => {
+      const id = inp.id
+      if (id && doc.querySelector(`label[for="${id}"]`)) return false
+      if (inp.getAttribute('aria-label')) return false
+      if (inp.getAttribute('aria-labelledby')) return false
+      if (inp.getAttribute('title')) return false
+      if (inp.getAttribute('placeholder') && inp.tagName === 'INPUT') return false
+      const wrappingLabel = inp.closest('label')
+      if (wrappingLabel) return false
+      return true
+    }).map(inp => ({ html: inp.outerHTML.substring(0, 120) }))
+
+    // 15. 새 창/탭 경고 (target="_blank")
+    const newWindowLinks = Array.from(doc.querySelectorAll('a[target="_blank"]'))
+    const missingNewWindowWarning = newWindowLinks.filter(el => {
+      const text  = el.textContent?.trim() || ''
+      const title = el.getAttribute('title') || ''
+      const aria  = el.getAttribute('aria-label') || ''
+      return !/새\s*창|new\s*window|새\s*탭|new\s*tab/i.test(text + title + aria)
+    }).map(el => ({
+      href: (el.getAttribute('href') || '').substring(0, 80),
+      text: el.textContent?.trim().substring(0, 60) || ''
+    }))
+
+    // 16. 브레드크럼
+    const breadcrumb = doc.querySelector('[aria-label*="breadcrumb"], [aria-label*="경로"], .breadcrumb, #breadcrumb, [class*="breadcrumb"], nav ol, nav ul')
+
+    // 17. 개인정보처리방침 링크
+    const privacyLink = Array.from(doc.querySelectorAll('a')).find(a => {
+      const t = a.textContent?.trim() || ''
+      const h = a.getAttribute('href') || ''
+      return /개인정보|privacy/i.test(t + h)
+    })
+
+    // 18. 저작권 표시
+    const copyrightText = /copyright|©|저작권/i.test(allText)
+
+    // 19. 검색 기능
+    const searchForm = doc.querySelector('[role="search"], form[action*="search"], input[type="search"], input[name*="search"], input[name*="query"], input[name*="keyword"]')
+
+    // 20. 오류 페이지 감지 여부 (타이틀이나 본문에 404/오류 메시지)
+    const isErrorPage = /404|not\s*found|페이지를\s*찾을\s*수\s*없/i.test(title + allText.substring(0, 500))
+
+    // 21. 로고 alt 텍스트
+    const logoImgs = Array.from(doc.querySelectorAll('[class*="logo"] img, #logo img, header img, .header img'))
+    const logoMissingAlt = logoImgs.filter(img => !img.getAttribute('alt') || img.getAttribute('alt').trim() === '')
+
+    // 22. 반응형 메타 viewport
+    const hasResponsiveViewport = /width=device-width/i.test(viewport)
+
+    // 23. 링크 텍스트 의미성 ("여기", "클릭", "more", "바로가기" 등 비의미적 링크)
+    const allLinks = Array.from(doc.querySelectorAll('a[href]'))
+    const meaninglessLinks = allLinks.filter(a => {
+      const t = a.textContent?.trim() || ''
+      const aria = a.getAttribute('aria-label') || ''
+      if (aria) return false
+      return /^(여기|클릭|click\s*here|more|바로가기|자세히|see\s*more|read\s*more)$/i.test(t)
+    }).map(a => ({
+      text: a.textContent?.trim().substring(0, 60) || '',
+      href: (a.getAttribute('href') || '').substring(0, 80)
+    }))
+
+    // 24. 테이블 헤더 th 존재
+    const tables = Array.from(doc.querySelectorAll('table'))
+    const tablesWithoutHeader = tables.filter(t => !t.querySelector('th')).length
+    const tablesTotal = tables.length
+
+    // 25. iframe title
+    const iframes = Array.from(doc.querySelectorAll('iframe'))
+    const iframesMissingTitle = iframes.filter(f => !f.getAttribute('title') && !f.getAttribute('aria-label')).map(f => ({
+      src: (f.getAttribute('src') || '').substring(0, 80)
+    }))
+
+    return {
+      lang, title, metaCharset, viewport, hasResponsiveViewport,
+      hasFavicon: !!favicon,
+      skipLinksCount: skipLinks.length,
+      hasOfficialBanner,
+      hasHeader: !!header,
+      hasFooter: !!footer,
+      hasMain: !!main,
+      hasNav: !!nav,
+      h1Count: h1s.length,
+      imgsTotal: imgs.length,
+      missingAlt, emptyAltCount: emptyAlt.length,
+      noLabel,
+      missingNewWindowWarning: missingNewWindowWarning.slice(0, 10),
+      hasBreadcrumb: !!breadcrumb,
+      hasPrivacyLink: !!privacyLink,
+      hasCopyright: copyrightText,
+      hasSearch: !!searchForm,
+      isErrorPage,
+      logoMissingAlt: logoMissingAlt.length,
+      meaninglessLinks: meaninglessLinks.slice(0, 10),
+      tablesWithoutHeader, tablesTotal,
+      iframesMissingTitle: iframesMissingTitle.slice(0, 5),
+    }
+  })
+
+  // ── 항목별 판정 ────────────────────────────────────────
+
+  // [필수] 1. lang 속성
+  addItem('lang', '기본 구조', 'HTML lang 속성', '필수',
+    domData.lang && /^ko|en|ja|zh/.test(domData.lang),
+    domData.lang ? `lang="${domData.lang}"` : 'lang 속성 없음',
+    'html 태그에 lang="ko" 추가 필요'
+  )
+
+  // [필수] 2. 페이지 타이틀
+  addItem('title', '기본 구조', '페이지 title 태그', '필수',
+    domData.title && domData.title.trim().length > 0,
+    domData.title ? `"${domData.title.substring(0, 60)}"` : 'title 없음',
+    '각 페이지를 구분할 수 있는 의미있는 title 설정 필요'
+  )
+
+  // [필수] 3. 문자셋
+  addItem('charset', '기본 구조', '문자셋(charset) 선언', '필수',
+    /utf-?8/i.test(domData.metaCharset),
+    domData.metaCharset || '선언 없음',
+    'meta charset="UTF-8" 선언 필요'
+  )
+
+  // [필수] 4. viewport
+  addItem('viewport', '기본 구조', 'viewport 메타 태그', '필수',
+    !!domData.viewport,
+    domData.viewport || '없음',
+    'meta name="viewport" content="width=device-width, initial-scale=1.0" 추가 필요'
+  )
+
+  // [권장] 5. 반응형 viewport (width=device-width)
+  addItem('responsive-viewport', '기본 구조', '반응형 viewport 설정', '권장',
+    domData.hasResponsiveViewport,
+    domData.hasResponsiveViewport ? 'width=device-width 포함' : 'width=device-width 미설정',
+    'viewport에 width=device-width 포함 권장'
+  )
+
+  // [권장] 6. favicon
+  addItem('favicon', '아이덴티티', '파비콘(favicon)', '권장',
+    domData.hasFavicon,
+    domData.hasFavicon ? '파비콘 있음' : '파비콘 없음',
+    'link rel="icon" 으로 파비콘 설정 권장'
+  )
+
+  // [필수] 7. 건너뛰기 링크
+  addItem('skip-nav', '접근성·탐색', '건너뛰기 링크', '필수',
+    domData.skipLinksCount > 0,
+    domData.skipLinksCount > 0 ? `${domData.skipLinksCount}개 발견` : '건너뛰기 링크 없음',
+    '페이지 최상단에 "본문 바로가기" 등의 건너뛰기 링크 추가 필요 (WCAG 2.4.1)'
+  )
+
+  // [필수] 8. 공식 배너
+  addItem('official-banner', '아이덴티티', '대한민국 공식 전자정부 배너', '필수',
+    domData.hasOfficialBanner,
+    domData.hasOfficialBanner ? '공식 배너 있음' : '공식 배너 없음',
+    '"이 누리집은 대한민국 공식 전자정부 누리집입니다" 배너 추가 필요'
+  )
+
+  // [필수] 9. 헤더
+  addItem('header', '레이아웃·구조', '헤더(header) 영역', '필수',
+    domData.hasHeader,
+    domData.hasHeader ? 'header 요소 있음' : 'header 요소 없음',
+    'header 태그 또는 role="banner" 속성 추가 필요'
+  )
+
+  // [필수] 10. 푸터
+  addItem('footer', '레이아웃·구조', '푸터(footer) 영역', '필수',
+    domData.hasFooter,
+    domData.hasFooter ? 'footer 요소 있음' : 'footer 요소 없음',
+    'footer 태그 또는 role="contentinfo" 속성 추가 필요'
+  )
+
+  // [권장] 11. 메인 콘텐츠 영역
+  addItem('main', '레이아웃·구조', '메인 콘텐츠 영역(main)', '권장',
+    domData.hasMain,
+    domData.hasMain ? 'main 요소 있음' : 'main 요소 없음',
+    'main 태그 또는 role="main" 속성 추가 권장'
+  )
+
+  // [권장] 12. 네비게이션
+  addItem('nav', '탐색', '내비게이션(nav) 요소', '권장',
+    domData.hasNav,
+    domData.hasNav ? 'nav 요소 있음' : 'nav 요소 없음',
+    'nav 태그 또는 role="navigation" 속성 추가 권장'
+  )
+
+  // [필수] 13. h1 태그
+  const h1Pass = domData.h1Count === 1
+  addItem('h1', '콘텐츠 구조', 'H1 제목 태그 (1개)', '필수',
+    h1Pass,
+    domData.h1Count === 0 ? 'h1 없음' : domData.h1Count === 1 ? 'h1 1개 (정상)' : `h1 ${domData.h1Count}개 (중복)`,
+    'h1 태그는 페이지당 정확히 1개여야 함'
+  )
+
+  // [필수] 14. 이미지 alt 누락
+  const altPass = domData.missingAlt.length === 0
+  addItem('img-alt', '접근성·콘텐츠', '이미지 alt 속성', '필수',
+    altPass,
+    altPass ? `전체 이미지 ${domData.imgsTotal}개 중 alt 누락 없음` :
+      `alt 누락 ${domData.missingAlt.length}개/${domData.imgsTotal}개 (예: ${domData.missingAlt[0]?.src || ''})`,
+    '모든 의미있는 이미지에 alt 속성 추가 필요 (WCAG 1.1.1)'
+  )
+
+  // [필수] 15. 폼 레이블
+  const labelPass = domData.noLabel.length === 0
+  addItem('form-label', '접근성·입력', '폼 요소 레이블 연결', '필수',
+    labelPass,
+    labelPass ? '모든 폼 요소에 레이블 연결됨' :
+      `레이블 없는 폼 ${domData.noLabel.length}개 (예: ${domData.noLabel[0]?.html || ''})`,
+    'input, select, textarea에 label[for] 또는 aria-label 연결 필요 (WCAG 1.3.1)'
+  )
+
+  // [권장] 16. 새 창 경고
+  const newWinPass = domData.missingNewWindowWarning.length === 0
+  addItem('new-window', '접근성·탐색', '새 창 열림 안내', '권장',
+    newWinPass,
+    newWinPass ? '새 창 링크 모두 안내 있음' :
+      `안내 없는 새 창 링크 ${domData.missingNewWindowWarning.length}개 (예: "${domData.missingNewWindowWarning[0]?.text || ''}")`,
+    'target="_blank" 링크에 title 또는 텍스트로 "새 창" 안내 필요'
+  )
+
+  // [권장] 17. 브레드크럼
+  addItem('breadcrumb', '탐색', '브레드크럼(현재위치) 표시', '권장',
+    domData.hasBreadcrumb,
+    domData.hasBreadcrumb ? '브레드크럼 있음' : '브레드크럼 없음',
+    '현재 페이지 위치를 나타내는 브레드크럼 제공 권장'
+  )
+
+  // [필수] 18. 개인정보처리방침 링크
+  addItem('privacy', '법적 준수', '개인정보처리방침 링크', '필수',
+    domData.hasPrivacyLink,
+    domData.hasPrivacyLink ? '개인정보처리방침 링크 있음' : '개인정보처리방침 링크 없음',
+    '개인정보처리방침 페이지 링크 제공 필요 (전자정부법)'
+  )
+
+  // [권장] 19. 저작권 표시
+  addItem('copyright', '법적 준수', '저작권(copyright) 표시', '권장',
+    domData.hasCopyright,
+    domData.hasCopyright ? '저작권 표시 있음' : '저작권 표시 없음',
+    '푸터 등에 저작권 표시 권장'
+  )
+
+  // [권장] 20. 검색 기능
+  addItem('search', '탐색', '검색 기능', '권장',
+    domData.hasSearch,
+    domData.hasSearch ? '검색 기능 있음' : '검색 기능 없음',
+    '사용자가 원하는 정보를 찾을 수 있도록 검색 기능 제공 권장'
+  )
+
+  // [권장] 21. 로고 alt
+  if (domData.logoMissingAlt > 0 || domData.imgsTotal > 0) {
+    addItem('logo-alt', '아이덴티티', '로고 이미지 alt 텍스트', '권장',
+      domData.logoMissingAlt === 0,
+      domData.logoMissingAlt > 0 ? `로고 이미지 alt 없음 ${domData.logoMissingAlt}개` : '로고 alt 적절히 설정됨',
+      '헤더 로고 이미지에 기관명 alt 텍스트 설정 권장'
+    )
+  }
+
+  // [권장] 22. 의미없는 링크 텍스트
+  if (domData.meaninglessLinks.length > 0) {
+    addItem('link-text', '접근성·탐색', '링크 텍스트 의미성', '권장',
+      false,
+      `비의미적 링크 ${domData.meaninglessLinks.length}개 (예: "${domData.meaninglessLinks[0]?.text}")`,
+      '"여기", "바로가기" 등 비의미적 링크 텍스트는 구체적인 텍스트나 aria-label로 개선 권장'
+    )
+  } else {
+    addItem('link-text', '접근성·탐색', '링크 텍스트 의미성', '권장',
+      true,
+      '비의미적 링크 없음',
+      ''
+    )
+  }
+
+  // [권장] 23. 테이블 헤더
+  if (domData.tablesTotal > 0) {
+    addItem('table-header', '접근성·콘텐츠', '표(table) 헤더 th 사용', '권장',
+      domData.tablesWithoutHeader === 0,
+      domData.tablesWithoutHeader > 0
+        ? `th 없는 table ${domData.tablesWithoutHeader}개/${domData.tablesTotal}개`
+        : `전체 table ${domData.tablesTotal}개 모두 th 있음`,
+      '데이터 테이블에 th 요소로 헤더 구분 필요'
+    )
+  }
+
+  // [권장] 24. iframe title
+  if (domData.iframesMissingTitle.length > 0) {
+    addItem('iframe-title', '접근성', 'iframe title 속성', '권장',
+      false,
+      `title 없는 iframe ${domData.iframesMissingTitle.length}개`,
+      'iframe에 title 속성으로 목적 설명 필요 (WCAG 4.1.2)'
+    )
+  }
+
+  // ── 결과 집계 ──────────────────────────────────────────
+  const passed    = results.filter(r => r.passed === true).length
+  const failed    = results.filter(r => r.passed === false).length
+  const total     = results.length
+  const score     = total > 0 ? Math.round((passed / total) * 100) : 0
+  const mandatory = results.filter(r => r.level === '필수')
+  const mandatoryPassed = mandatory.filter(r => r.passed).length
+  const recommended = results.filter(r => r.level === '권장')
+  const recommendedPassed = recommended.filter(r => r.passed).length
+
+  return {
+    checkedAt: new Date().toISOString(),
+    url: pageUrl,
+    score,
+    passed, failed, total,
+    mandatory: { total: mandatory.length, passed: mandatoryPassed },
+    recommended: { total: recommended.length, passed: recommendedPassed },
+    items: results
+  }
+}
+
 // 단일 페이지 스캔 (배치용 내부 함수)
 async function scanSinglePage(url, options = {}) {
   const {
@@ -1189,6 +1594,7 @@ async function scanSinglePage(url, options = {}) {
     useW3CLinks = false,      // W3C Link Checker 사용 여부
     checkW3C = false,
     containerOnly = false,    // true: <!-- cont-inner info-detail// --> 영역만 검사
+    checkKRDS: doCheckKRDS = false,  // KRDS 준수 검사 여부
   } = options
   
   let poolSlot = null
@@ -1435,6 +1841,17 @@ async function scanSinglePage(url, options = {}) {
       w3cResult = await validateW3C(htmlSource, pageUrl)
     }
 
+    // ── KRDS 준수 검사 ─────────────────────────────────
+    let krdsResult = null
+    if (doCheckKRDS) {
+      try {
+        krdsResult = await checkKRDS(page, htmlSource, pageUrl)
+      } catch (e) {
+        console.error('[KRDS] 검사 오류:', e.message)
+        krdsResult = { error: e.message, score: 0, passed: 0, failed: 0, total: 0, items: [] }
+      }
+    }
+
     await page.close()
     await browserPool.release(poolSlot)
     poolSlot = null
@@ -1453,6 +1870,7 @@ async function scanSinglePage(url, options = {}) {
       spelling: spellingResult,
       links: linkResult,
       w3c: w3cResult,
+      krds: krdsResult,
       status: 'completed'
     }
   } catch (err) {
@@ -1472,6 +1890,7 @@ async function scanSinglePage(url, options = {}) {
       spelling: { issues: [], totalWords: 0, totalIssues: 0 },
       links: { dead: [], redirects: [], live: 0, total: 0 },
       w3c: { valid: null, errorCount: 0, warningCount: 0, fatalCount: 0, errors: [], warnings: [] },
+      krds: null,
       status: 'error',
       error: err.message
     }

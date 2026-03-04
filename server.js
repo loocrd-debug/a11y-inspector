@@ -17,7 +17,81 @@ app.use(cors())
 app.use(express.json({ limit: '10mb' }))
 app.use(express.static(join(__dirname, 'public')))
 
-// 영문 spell checker 미사용 (한국어 전용 오탈자 검사)
+// ─────────────────────────────────────────────────────
+// 브라우저 풀 (배치 스캔에서 매번 launch/close 하지 않고 재사용)
+// ─────────────────────────────────────────────────────
+const BROWSER_POOL_SIZE = 3       // 동시 유지 브라우저 수
+const BATCH_CONCURRENCY = 3       // 배치 동시 처리 수
+const BROWSER_MAX_USES  = 30      // 재사용 횟수 초과 시 교체 (메모리 누수 방지)
+
+class BrowserPool {
+  constructor(size = BROWSER_POOL_SIZE) {
+    this.size = size
+    this.pool = []    // { browser, uses, busy }
+    this.queue = []   // 대기 Promise resolve 목록
+  }
+
+  async _launch() {
+    const browser = await chromium.launch({
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+             '--disable-gpu', '--disable-extensions', '--disable-background-networking']
+    })
+    return { browser, uses: 0, busy: false }
+  }
+
+  async acquire() {
+    // 빈 슬롯 찾기
+    let slot = this.pool.find(s => !s.busy)
+    if (!slot && this.pool.length < this.size) {
+      slot = await this._launch()
+      this.pool.push(slot)
+    }
+    if (slot) {
+      slot.busy = true
+      return slot
+    }
+    // 모두 사용 중 → 대기
+    return new Promise(resolve => this.queue.push(resolve))
+  }
+
+  async release(slot) {
+    slot.uses++
+    slot.busy = false
+    // 과다 사용 슬롯은 교체
+    if (slot.uses >= BROWSER_MAX_USES) {
+      const idx = this.pool.indexOf(slot)
+      if (idx !== -1) {
+        this.pool.splice(idx, 1)
+        slot.browser.close().catch(() => {})
+      }
+    }
+    // 대기 중인 요청 처리
+    if (this.queue.length > 0) {
+      const next = this.queue.shift()
+      const newSlot = await this._launch().catch(async () => {
+        // 런칭 실패 시 기존 슬롯 하나를 강제 해제
+        const free = this.pool.find(s => !s.busy)
+        if (free) { free.busy = true; return free }
+        return null
+      })
+      if (newSlot) {
+        this.pool.push(newSlot)
+        newSlot.busy = true
+        next(newSlot)
+      }
+    }
+  }
+
+  async closeAll() {
+    await Promise.allSettled(this.pool.map(s => s.browser.close()))
+    this.pool = []
+  }
+}
+
+const browserPool = new BrowserPool()
+// 서버 종료 시 정리
+process.on('SIGTERM', () => browserPool.closeAll())
+process.on('SIGINT',  () => browserPool.closeAll())
 
 // ─── 유틸 함수 ────────────────────────────────────────
 function escapeHtml(str) {
@@ -107,12 +181,13 @@ async function checkDaumSpelling(textChunks, pageUrl, browser) {
     daumPage = await browser.newPage()
     await daumPage.setViewportSize({ width: 1280, height: 800 })
 
-    // Daum 맞춤법 검사기 페이지 로드
+    // Daum 맞춤법 검사기 페이지 로드 (이미지/폰트 차단 → 빠른 로드)
+    await daumPage.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot}', r => r.abort())
     await daumPage.goto('https://dic.daum.net/grammar_checker.do', {
-      waitUntil: 'networkidle', timeout: 25000
+      waitUntil: 'domcontentloaded', timeout: 20000
     })
     await daumPage.waitForSelector('#tfSpelling', { timeout: 10000 })
-    await daumPage.waitForTimeout(800)
+    await daumPage.waitForTimeout(100)
 
     for (const chunk of textChunks) {
       const { text, lineOffset = 0 } = chunk
@@ -122,22 +197,20 @@ async function checkDaumSpelling(textChunks, pageUrl, browser) {
         // 텍스트 입력 (기존 내용 지우고 새 텍스트 입력)
         await daumPage.waitForSelector('#tfSpelling', { timeout: 8000 })
         await daumPage.fill('#tfSpelling', '')
-        await daumPage.waitForTimeout(200)
         await daumPage.fill('#tfSpelling', text)
-        await daumPage.waitForTimeout(300)
 
         // 검사 버튼 클릭
         await daumPage.waitForSelector('#btnCheck', { timeout: 8000 })
         await daumPage.click('#btnCheck')
 
-        // 결과 대기: 오류가 있으면 cont_spell, 없으면 resultForm 표시
+        // 결과 대기: resultForm 또는 오류메시지 표시될 때까지
         try {
-          await daumPage.waitForSelector('#resultForm', { timeout: 12000 })
+          await daumPage.waitForSelector('#resultForm', { timeout: 10000 })
         } catch {
           // resultForm도 없으면 스킵
           continue
         }
-        await daumPage.waitForTimeout(500)
+        await daumPage.waitForTimeout(100)
 
         // 오류 파싱
         const errors = await daumPage.evaluate(() => {
@@ -189,51 +262,49 @@ async function checkDaumSpelling(textChunks, pageUrl, browser) {
 
 // ─── 데드링크 검사 ────────────────────────────────────
 async function checkDeadLinks(links, baseUrl, page) {
-  const results = []
-  const checked = new Map()
   // 동일 도메인 우선, 외부 링크는 최대 30개로 제한
   const baseDomain = new URL(baseUrl).hostname
   const internalLinks = links.filter(l => { try { return new URL(l).hostname === baseDomain } catch { return false } })
   const externalLinks = links.filter(l => { try { return new URL(l).hostname !== baseDomain } catch { return false } }).slice(0, 30)
   const allLinks = [...new Set([...internalLinks, ...externalLinks])].slice(0, 60)
 
-  for (const link of allLinks) {
-    if (checked.has(link)) continue
-    checked.set(link, true)
-    let status = null
-    let ok = false
-    let redirectUrl = null
-    let error = null
+  // 단일 링크 HEAD→GET 검사
+  async function checkOne(link) {
+    let status = null, ok = false, redirectUrl = null, error = null
     try {
       const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), 8000)
+      const timer = setTimeout(() => ctrl.abort(), 7000)
       const resp = await fetch(link, {
-        method: 'HEAD',
-        redirect: 'follow',
-        signal: ctrl.signal,
+        method: 'HEAD', redirect: 'follow', signal: ctrl.signal,
         headers: { 'User-Agent': 'Mozilla/5.0 (A11y-Inspector/1.0)' }
       })
       clearTimeout(timer)
       status = resp.status
-      ok = resp.ok || resp.status === 301 || resp.status === 302 || resp.status === 307 || resp.status === 308
+      ok = resp.ok || [301,302,307,308].includes(resp.status)
       if (resp.url !== link) redirectUrl = resp.url
-      // HEAD가 405이면 GET 재시도
       if (resp.status === 405) {
         const ctrl2 = new AbortController()
-        const timer2 = setTimeout(() => ctrl2.abort(), 8000)
+        const timer2 = setTimeout(() => ctrl2.abort(), 7000)
         const resp2 = await fetch(link, { method: 'GET', redirect: 'follow', signal: ctrl2.signal, headers: { 'User-Agent': 'Mozilla/5.0 (A11y-Inspector/1.0)' } })
         clearTimeout(timer2)
-        status = resp2.status
-        ok = resp2.ok
+        status = resp2.status; ok = resp2.ok
       }
     } catch (e) {
       error = e.name === 'AbortError' ? '연결 시간 초과' : e.message.includes('fetch') ? '연결 실패' : e.message.substring(0, 60)
       ok = false
     }
-    if (!ok) {
-      results.push({ url: link, status, error, redirectUrl, ok: false })
-    } else {
-      results.push({ url: link, status, redirectUrl, ok: true })
+    return { url: link, status, error, redirectUrl, ok }
+  }
+
+  // 병렬 처리 (최대 10개 동시)
+  const CONCUR = 10
+  const results = []
+  for (let i = 0; i < allLinks.length; i += CONCUR) {
+    const batch = allLinks.slice(i, i + CONCUR)
+    const settled = await Promise.allSettled(batch.map(checkOne))
+    for (const s of settled) {
+      if (s.status === 'fulfilled') results.push(s.value)
+      else results.push({ url: batch[results.length % CONCUR], status: null, error: s.reason?.message, ok: false })
     }
   }
   return { results, total: allLinks.length }
@@ -263,13 +334,20 @@ app.post('/api/scan', async (req, res) => {
   let browser
   try {
     browser = await chromium.launch({
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--disable-extensions']
     })
     const page = await browser.newPage()
     await page.setViewportSize({ width: 1280, height: 900 })
 
+    // 이미지·폰트·미디어 차단 → 로드 속도 향상
+    if (!includeScreenshot) {
+      await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3,pdf}', r => r.abort())
+    } else {
+      await page.route('**/*.{woff,woff2,ttf,eot,mp4,mp3,pdf}', r => r.abort())
+    }
+
     await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
-    await page.waitForTimeout(1500)
+    await page.waitForTimeout(500)
 
     const pageTitle = await page.title()
     const pageUrl = page.url()
@@ -1113,16 +1191,24 @@ async function scanSinglePage(url, options = {}) {
     containerOnly = false,    // true: <!-- cont-inner info-detail// --> 영역만 검사
   } = options
   
-  let browser
+  let poolSlot = null
+  let page = null
   try {
-    browser = await chromium.launch({
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-    })
-    const page = await browser.newPage()
+    // 브라우저 풀에서 인스턴스 획득
+    poolSlot = await browserPool.acquire()
+    const browser = poolSlot.browser
+    page = await browser.newPage()
     await page.setViewportSize({ width: 1280, height: 900 })
 
+    // 이미지·폰트·미디어 차단 → 로드 속도 향상 (스크린샷 필요 시 이미지는 허용)
+    if (!includeScreenshot) {
+      await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3,pdf}', r => r.abort())
+    } else {
+      await page.route('**/*.{woff,woff2,ttf,eot,mp4,mp3,pdf}', r => r.abort())
+    }
+
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
-    await page.waitForTimeout(1500)
+    await page.waitForTimeout(500)
 
     const pageTitle = await page.title()
     const pageUrl = page.url()
@@ -1349,7 +1435,9 @@ async function scanSinglePage(url, options = {}) {
       w3cResult = await validateW3C(htmlSource, pageUrl)
     }
 
-    await browser.close()
+    await page.close()
+    await browserPool.release(poolSlot)
+    poolSlot = null
 
     return {
       id: Date.now().toString() + Math.random().toString(36).slice(2),
@@ -1368,7 +1456,8 @@ async function scanSinglePage(url, options = {}) {
       status: 'completed'
     }
   } catch (err) {
-    if (browser) await browser.close().catch(() => {})
+    if (page) await page.close().catch(() => {})
+    if (poolSlot) await browserPool.release(poolSlot).catch(() => {})
     return {
       id: Date.now().toString() + Math.random().toString(36).slice(2),
       scannedAt: new Date().toISOString(),
@@ -1415,23 +1504,30 @@ app.post('/api/batch/start', async (req, res) => {
 
   res.json({ sessionId, total: urls.length, message: '배치 스캔이 시작되었습니다.' })
 
-  // 백그라운드 실행 (순차 처리)
+  // 백그라운드 실행 (BATCH_CONCURRENCY 개 병렬 처리)
   ;(async () => {
-    for (let i = 0; i < urls.length; i++) {
-      const url = urls[i]
-      try {
-        const result = await scanSinglePage(url, options)
-        session.results.push(result)
-        // 증적 개별 저장
-        evidenceStore.set(result.id, result)
-        if (result.status === 'error') session.failed++
-        else session.completed++
-      } catch (err) {
-        session.failed++
-        session.results.push({ url, status: 'error', error: err.message })
+    let idx = 0
+    let done = 0
+    const workers = Array.from({ length: BATCH_CONCURRENCY }, async () => {
+      while (true) {
+        const i = idx++
+        if (i >= urls.length) break
+        const url = urls[i]
+        try {
+          const result = await scanSinglePage(url, options)
+          session.results.push(result)
+          evidenceStore.set(result.id, result)
+          if (result.status === 'error') session.failed++
+          else session.completed++
+        } catch (err) {
+          session.failed++
+          session.results.push({ url, status: 'error', error: err.message })
+        }
+        done++
+        session.progress = Math.round(done / urls.length * 100)
       }
-      session.progress = Math.round((i + 1) / urls.length * 100)
-    }
+    })
+    await Promise.allSettled(workers)
     session.status = 'completed'
     session.finishedAt = new Date().toISOString()
   })()
@@ -1502,28 +1598,34 @@ app.post('/api/batch/start-all', async (req, res) => {
       batchSessions.set(sessionId, session)
       sessionIds.push(sessionId)
 
-      // 각 세션을 백그라운드에서 순차 처리
+      // 각 세션을 백그라운드에서 병렬 처리 (BATCH_CONCURRENCY 개 동시)
       ;(async (sess, urlList) => {
-        for (let j = 0; j < urlList.length; j++) {
-          const entry = urlList[j]
-          const urlStr = typeof entry === 'string' ? entry : entry.url
-          try {
-            const result = await scanSinglePage(urlStr, options)
-            // 메타정보 보강
-            if (typeof entry === 'object') {
-              result.category = result.category || entry.category
-              result.department = result.department || entry.department
+        let jIdx = 0, done = 0
+        const workers = Array.from({ length: BATCH_CONCURRENCY }, async () => {
+          while (true) {
+            const j = jIdx++
+            if (j >= urlList.length) break
+            const entry = urlList[j]
+            const urlStr = typeof entry === 'string' ? entry : entry.url
+            try {
+              const result = await scanSinglePage(urlStr, options)
+              if (typeof entry === 'object') {
+                result.category = result.category || entry.category
+                result.department = result.department || entry.department
+              }
+              sess.results.push(result)
+              evidenceStore.set(result.id, result)
+              if (result.status === 'error') sess.failed++
+              else sess.completed++
+            } catch (err) {
+              sess.failed++
+              sess.results.push({ url: urlStr, status: 'error', error: err.message })
             }
-            sess.results.push(result)
-            evidenceStore.set(result.id, result)
-            if (result.status === 'error') sess.failed++
-            else sess.completed++
-          } catch (err) {
-            sess.failed++
-            sess.results.push({ url: urlStr, status: 'error', error: err.message })
+            done++
+            sess.progress = Math.round(done / urlList.length * 100)
           }
-          sess.progress = Math.round((j + 1) / urlList.length * 100)
-        }
+        })
+        await Promise.allSettled(workers)
         sess.status = 'completed'
         sess.finishedAt = new Date().toISOString()
       })(session, urls)

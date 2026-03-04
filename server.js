@@ -34,47 +34,155 @@ function normalizeUrl(url, base) {
   }
 }
 
-// ─── 한글 오탈자 검사 (규칙 기반) ────────────────────
-function checkKoreanTypo(text) {
-  const issues = []
-  // 자주 틀리는 한글 패턴 (오타 → 올바른 표현)
-  const koreanRules = [
-    { pattern: /되여/g,    correct: '되어',     desc: '\'되어\'의 잘못된 표기' },
-    { pattern: /됬/g,      correct: '됐',       desc: '\'됐\'의 잘못된 표기' },
-    { pattern: /할께요/g,  correct: '할게요',   desc: '\'할게요\'의 잘못된 표기' },
-    { pattern: /할께/g,    correct: '할게',     desc: '\'할게\'의 잘못된 표기' },
-    { pattern: /안되/g,    correct: '안 돼',    desc: '\'안 돼\'의 잘못된 표기' },
-    { pattern: /않돼/g,    correct: '안 돼',    desc: '\'안 돼\'의 잘못된 표기' },
-    { pattern: /왠지/g,    correct: '왠지',     desc: '\'왠지\'는 \'왜인지\'의 준말로 올바른 표기 (참고용)' },
-    { pattern: /웬만하면/g, correct: '웬만하면', desc: '\'웬만하면\' 표기 확인' },
-    { pattern: /어떻해/g,  correct: '어떡해',   desc: '\'어떡해\'의 잘못된 표기' },
-    { pattern: /어떻게해/g, correct: '어떡해',  desc: '\'어떡해\'의 잘못된 표기' },
-    { pattern: /몇일/g,    correct: '며칠',     desc: '\'며칠\'의 잘못된 표기' },
-    { pattern: /예기/g,    correct: '얘기',     desc: '\'얘기\'의 잘못된 표기' },
-    { pattern: /로서[\s]/g, correct: '로써 ',   desc: '도구/수단에는 \'로써\' 사용 권장 (문맥 확인 필요)' },
-    { pattern: /데로/g,    correct: '대로',     desc: '\'대로\'의 잘못된 표기' },
-    { pattern: /거에요/g,  correct: '거예요',   desc: '\'거예요\'의 잘못된 표기' },
-    { pattern: /이에요\./g, correct: '이에요.',  desc: '\'이에요\' 확인 (예요/이에요 구분)' },
-    { pattern: /있슴/g,    correct: '있음',     desc: '\'있음\'의 잘못된 표기' },
-    { pattern: /없슴/g,    correct: '없음',     desc: '\'없음\'의 잘못된 표기' },
-    { pattern: /습니다\s+다/g, correct: '습니다', desc: '중복된 어미 표현' },
-    { pattern: /\.\.\./g,  correct: '…',        desc: '말줄임표는 \'…\' 사용 권장' },
-  ]
-  for (const rule of koreanRules) {
-    const matches = [...text.matchAll(rule.pattern)]
-    for (const m of matches) {
-      const idx = m.index
-      const ctx = text.substring(Math.max(0, idx - 20), Math.min(text.length, idx + 30))
-      issues.push({
-        word: m[0].trim(),
-        suggestion: rule.correct,
-        context: ctx,
-        desc: rule.desc,
-        type: 'korean'
-      })
+// ─── 한글 오탈자 검사 (Daum 맞춤법 검사기 기반) ────────
+// Playwright로 dic.daum.net/grammar_checker.do 에 접근하여 검사
+// errorType 코드: spell(철자), spacing(띄어쓰기), ambiguous(문맥), stat(통계)
+const DAUM_ERROR_TYPE_LABEL = {
+  spell:     '철자 오류',
+  spacing:   '띄어쓰기',
+  ambiguous: '문맥 오류',
+  stat:      '통계적 교정',
+  unknown:   '기타 오류',
+}
+
+// 텍스트에서 오탈자 위치(줄번호, 근사 컬럼)를 찾는 헬퍼
+function findTokenPosition(fullText, token, context) {
+  // context 기반으로 위치 탐색
+  const ctxIdx = context ? fullText.indexOf(context.trim().substring(0, 30)) : -1
+  const searchFrom = ctxIdx >= 0 ? ctxIdx : 0
+  const idx = fullText.indexOf(token, searchFrom)
+  if (idx === -1) return { line: null, col: null }
+  const before = fullText.substring(0, idx)
+  const lines = before.split('\n')
+  return {
+    line: lines.length,
+    col: lines[lines.length - 1].length + 1
+  }
+}
+
+// HTML 소스에서 노드 outerHTML의 줄번호를 근사 계산
+function findHtmlLineNumber(nodeHtml, htmlLines) {
+  if (!nodeHtml || !htmlLines) return null
+  const snippet = nodeHtml.replace(/\s+/g, ' ').trim().substring(0, 160)
+  const tagMatch = snippet.match(/^<(\w[\w-]*)/)
+  if (!tagMatch) return null
+  const tag = tagMatch[1].toLowerCase()
+  // 고유 식별 속성 우선 탐색
+  const idM    = snippet.match(/\bid=["']([^"']+)["']/)
+  const srcM   = snippet.match(/\bsrc=["']([^"']{4,100})["']/)
+  const hrefM  = snippet.match(/\bhref=["']([^"']{4,100})["']/)
+  const forM   = snippet.match(/\bfor=["']([^"']+)["']/)
+  const nameM  = snippet.match(/\bname=["']([^"']+)["']/)
+  const ariaM  = snippet.match(/\baria-label=["']([^"']{3,60})["']/)
+  const altM   = snippet.match(/\balt=["']([^"']{3,60})["']/)
+  const roleM  = snippet.match(/\brole=["']([^"']+)["']/)
+  const searches = []
+  if (idM)   searches.push(`id="${idM[1]}"`, `id='${idM[1]}'`)
+  if (srcM)  { const f = srcM[1].split('/').pop().substring(0,50); if (f.length>3) searches.push(f) }
+  if (hrefM) { const f = hrefM[1].split('/').pop().substring(0,50); if (f.length>3) searches.push(f) }
+  if (forM)  searches.push(`for="${forM[1]}"`, `for='${forM[1]}'`)
+  if (nameM) searches.push(`name="${nameM[1]}"`)
+  if (ariaM) searches.push(ariaM[1].substring(0,40))
+  if (altM)  searches.push(altM[1].substring(0,40))
+  if (roleM) searches.push(`role="${roleM[1]}"`)
+  searches.push(`<${tag}`)          // 태그명 폴백
+  for (const s of searches) {
+    if (!s || s.length < 2) continue
+    for (let li = 0; li < htmlLines.length; li++) {
+      if (htmlLines[li].includes(s)) return li + 1
     }
   }
-  return issues
+  return null
+}
+
+// Daum 맞춤법 검사기 호출 (별도 페이지 사용 - 원본 페이지 DOM 보존)
+async function checkDaumSpelling(textChunks, pageUrl, browser) {
+  // textChunks: 청크별 { text, lineOffset } 배열
+  // browser: Playwright 브라우저 인스턴스 (별도 페이지 생성)
+  const allIssues = []
+  let daumPage = null
+
+  try {
+    // 별도 페이지 생성으로 원본 DOM 보존
+    daumPage = await browser.newPage()
+    await daumPage.setViewportSize({ width: 1280, height: 800 })
+
+    // Daum 맞춤법 검사기 페이지 로드
+    await daumPage.goto('https://dic.daum.net/grammar_checker.do', {
+      waitUntil: 'networkidle', timeout: 25000
+    })
+    await daumPage.waitForSelector('#tfSpelling', { timeout: 10000 })
+    await daumPage.waitForTimeout(800)
+
+    for (const chunk of textChunks) {
+      const { text, lineOffset = 0 } = chunk
+      if (!text || text.trim().length < 2) continue
+
+      try {
+        // 텍스트 입력 (기존 내용 지우고 새 텍스트 입력)
+        await daumPage.waitForSelector('#tfSpelling', { timeout: 8000 })
+        await daumPage.fill('#tfSpelling', '')
+        await daumPage.waitForTimeout(200)
+        await daumPage.fill('#tfSpelling', text)
+        await daumPage.waitForTimeout(300)
+
+        // 검사 버튼 클릭
+        await daumPage.waitForSelector('#btnCheck', { timeout: 8000 })
+        await daumPage.click('#btnCheck')
+
+        // 결과 대기: 오류가 있으면 cont_spell, 없으면 resultForm 표시
+        try {
+          await daumPage.waitForSelector('#resultForm', { timeout: 12000 })
+        } catch {
+          // resultForm도 없으면 스킵
+          continue
+        }
+        await daumPage.waitForTimeout(500)
+
+        // 오류 파싱
+        const errors = await daumPage.evaluate(() => {
+          const results = []
+          document.querySelectorAll('a[data-error-type]').forEach(el => {
+            results.push({
+              token:      el.getAttribute('data-error-input')  || '',
+              suggestion: el.getAttribute('data-error-output') || '',
+              type:       el.getAttribute('data-error-type')   || 'unknown',
+              context:    el.getAttribute('data-error-context')|| '',
+              help:       el.getAttribute('data-error-help')   || '',
+            })
+          })
+          return results
+        })
+
+        // 위치 정보 추가
+        for (const err of errors) {
+          if (!err.token) continue
+          const pos = findTokenPosition(text, err.token, err.context)
+          allIssues.push({
+            word:       err.token,
+            suggestion: err.suggestion,
+            context:    err.context,
+            desc:       DAUM_ERROR_TYPE_LABEL[err.type] || DAUM_ERROR_TYPE_LABEL.unknown,
+            type:       err.type,
+            help:       err.help,
+            pageUrl:    pageUrl || '',
+            line:       pos.line !== null ? pos.line + lineOffset : null,
+            col:        pos.col,
+            engine:     'daum',
+          })
+        }
+
+      } catch (e) {
+        console.error('[Daum 맞춤법] 청크 오류:', e.message)
+      }
+    }
+  } catch (e) {
+    console.error('[Daum 맞춤법] 페이지 초기화 오류:', e.message)
+  } finally {
+    if (daumPage) await daumPage.close().catch(() => {})
+  }
+
+  return allIssues
 }
 
 // 영문 오탈자 검사 제거 (한국어 전용)
@@ -141,6 +249,7 @@ app.post('/api/scan', async (req, res) => {
     includeScreenshot = true,
     checkSpelling = true,
     checkLinks = true,
+    useW3CLinks = false,    // W3C Link Checker 사용 여부
     checkW3C = false
   } = req.body
 
@@ -186,10 +295,21 @@ app.post('/api/scan', async (req, res) => {
       })
     }, level)
 
+    // ── HTML 소스 취득 (줄번호 계산 + W3C 검사 공유) ────
+    const htmlSource = await page.content()
+    const htmlLines  = htmlSource.split('\n')
+
     const violations = axeResults.violations.map(v => ({
       id: v.id, impact: v.impact, description: v.description,
       help: v.help, helpUrl: v.helpUrl, tags: v.tags,
-      nodes: v.nodes.map(n => ({ html: n.html, failureSummary: n.failureSummary, target: n.target }))
+      pageUrl,
+      nodes: v.nodes.map(n => ({
+        html: n.html,
+        failureSummary: n.failureSummary,
+        target: n.target,
+        line: findHtmlLineNumber(n.html, htmlLines),
+        pageUrl,
+      }))
     }))
     const passes = axeResults.passes.length
     const incomplete = axeResults.incomplete.length
@@ -201,11 +321,12 @@ app.post('/api/scan', async (req, res) => {
       (impactCounts.critical * 10 + impactCounts.serious * 5 + impactCounts.moderate * 2 + impactCounts.minor * 1) / Math.max(1, total) * 100
     )))
 
-    // ── 오탈자 검사 ───────────────────────────────────
+    // ── 오탈자 검사 (Daum 맞춤법 검사기) ─────────────────
     let spellingResult = { issues: [], totalWords: 0, checkedAt: new Date().toISOString() }
     if (checkSpelling) {
-      // 페이지에서 텍스트와 링크 텍스트 추출
-      const pageText = await page.evaluate(() => {
+      // 페이지 텍스트 추출 (줄 단위 배열로) - body null 방지 처리 포함
+      const pageLines = await page.evaluate(() => {
+        if (!document.body) return []
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
           acceptNode(node) {
             const tag = node.parentElement?.tagName?.toLowerCase()
@@ -219,63 +340,99 @@ app.post('/api/scan', async (req, res) => {
           const t = n.textContent.trim()
           if (t.length > 1) texts.push(t)
         }
-        return texts.join(' ')
+        return texts
       })
 
-      const koIssues = checkKoreanTypo(pageText)
-      const wordCount = pageText.split(/\s+/).filter(w => w.length > 0).length
+      const fullText = pageLines.join('\n')
+      const wordCount = fullText.split(/\s+/).filter(w => w.length > 0).length
+
+      // Daum 맞춤법 검사기용 청크 분할 (최대 1500자, 최대 5청크)
+      const CHUNK_SIZE = 1500
+      const MAX_CHUNKS = 5
+      const chunks = []
+      let lineOffset = 0
+      let buf = []
+      let bufLen = 0
+      for (const line of pageLines) {
+        if (bufLen + line.length + 1 > CHUNK_SIZE && buf.length > 0) {
+          chunks.push({ text: buf.join('\n'), lineOffset })
+          lineOffset += buf.length
+          buf = []
+          bufLen = 0
+          if (chunks.length >= MAX_CHUNKS) break
+        }
+        buf.push(line)
+        bufLen += line.length + 1
+      }
+      if (buf.length > 0 && chunks.length < MAX_CHUNKS) chunks.push({ text: buf.join('\n'), lineOffset })
+
+      // Daum 맞춤법 검사 수행 (별도 페이지 생성 - 원본 DOM 보존)
+      let koIssues = []
+      try {
+        koIssues = await checkDaumSpelling(chunks, pageUrl, browser)
+      } catch (e) {
+        console.error('[오탈자] Daum 검사 실패:', e.message)
+      }
 
       spellingResult = {
-        issues: koIssues.slice(0, 50), // 최대 50개
+        issues: koIssues.slice(0, 100),
         totalWords: wordCount,
         totalIssues: koIssues.length,
         koreanIssues: koIssues.length,
+        engine: 'daum',
         checkedAt: new Date().toISOString()
       }
     }
 
+
     // ── 데드링크 검사 ─────────────────────────────────
     let linkResult = { dead: [], redirects: [], live: 0, total: 0, checkedAt: new Date().toISOString() }
     if (checkLinks) {
-      // 모든 링크 수집
-      const rawLinks = await page.evaluate(() => {
-        const links = []
-        document.querySelectorAll('a[href], link[href]').forEach(el => {
-          const href = el.getAttribute('href')
-          const text = el.textContent?.trim().substring(0, 60) || el.tagName
-          if (href) links.push({ href, text })
+      if (useW3CLinks) {
+        // ── W3C Link Checker 사용 ─────────────────────
+        linkResult = await checkLinksWithW3C(pageUrl)
+      } else {
+        // ── 내장 HEAD/GET 검사 ─────────────────────────
+        const rawLinks = await page.evaluate(() => {
+          const links = []
+          document.querySelectorAll('a[href], link[href]').forEach(el => {
+            const href = el.getAttribute('href')
+            const text = el.textContent?.trim().substring(0, 60) || el.tagName
+            if (href) links.push({ href, text })
+          })
+          return links
         })
-        return links
-      })
 
-      const resolvedLinks = rawLinks
-        .map(l => ({ ...l, resolved: normalizeUrl(l.href, pageUrl) }))
-        .filter(l => l.resolved !== null)
+        const resolvedLinks = rawLinks
+          .map(l => ({ ...l, resolved: normalizeUrl(l.href, pageUrl) }))
+          .filter(l => l.resolved !== null)
 
-      const uniqueUrls = [...new Set(resolvedLinks.map(l => l.resolved))]
-      const linkTextMap = {}
-      resolvedLinks.forEach(l => { if (!linkTextMap[l.resolved]) linkTextMap[l.resolved] = l.text })
+        const uniqueUrls = [...new Set(resolvedLinks.map(l => l.resolved))]
+        const linkTextMap = {}
+        resolvedLinks.forEach(l => { if (!linkTextMap[l.resolved]) linkTextMap[l.resolved] = l.text })
 
-      const { results, total } = await checkDeadLinks(uniqueUrls, pageUrl, page)
+        const { results, total } = await checkDeadLinks(uniqueUrls, pageUrl, page)
 
-      const dead = results.filter(r => !r.ok).map(r => ({ ...r, text: linkTextMap[r.url] || '' }))
-      const redirects = results.filter(r => r.ok && r.redirectUrl).map(r => ({ ...r, text: linkTextMap[r.url] || '' }))
-      const live = results.filter(r => r.ok).length
+        const dead = results.filter(r => !r.ok).map(r => ({ ...r, text: linkTextMap[r.url] || '' }))
+        const redirects = results.filter(r => r.ok && r.redirectUrl).map(r => ({ ...r, text: linkTextMap[r.url] || '' }))
+        const live = results.filter(r => r.ok).length
 
-      linkResult = {
-        dead,
-        redirects,
-        live,
-        total,
-        totalRaw: rawLinks.length,
-        checkedAt: new Date().toISOString()
+        linkResult = {
+          engine: 'internal',
+          dead,
+          redirects,
+          live,
+          total,
+          totalRaw: rawLinks.length,
+          checkedAt: new Date().toISOString()
+        }
       }
     }
 
     // ── W3C Markup Validation ─────────────────────────
     let w3cResult = { valid: null, errorCount: 0, warningCount: 0, fatalCount: 0, errors: [], warnings: [] }
     if (checkW3C) {
-      const htmlSource = await page.content()
+      // htmlSource는 이미 위에서 취득
       w3cResult = await validateW3C(htmlSource, pageUrl)
     }
 
@@ -334,16 +491,32 @@ app.post('/api/report', (req, res) => {
 
   // 오탈자 HTML
   const sp = result.spelling || {}
-  const spellingHtml = (sp.issues && sp.issues.length > 0) ? sp.issues.map((issue, i) => `
-    <div style="border-left:4px solid ${issue.type==='korean'?'#8b5cf6':'#0891b2'};margin-bottom:12px;padding:10px 14px;background:#fafafa;border-radius:0 6px 6px 0;">
+  const SPELL_TYPE_LABEL = { spell: '철자 오류', spacing: '띄어쓰기', ambiguous: '문맥 오류', stat: '통계 교정', korean: '한글', unknown: '기타' }
+  const SPELL_TYPE_COLOR = { spell: '#dc2626', spacing: '#d97706', ambiguous: '#ea580c', stat: '#2563eb', korean: '#8b5cf6', unknown: '#6b7280' }
+  const engineLabel = sp.engine === 'daum' ? '다음 맞춤법 검사기' : '규칙 기반'
+  const spellingHtml = (sp.issues && sp.issues.length > 0) ? sp.issues.map((issue, i) => {
+    const tc = SPELL_TYPE_COLOR[issue.type] || '#8b5cf6'
+    const tl = SPELL_TYPE_LABEL[issue.type] || '기타'
+    const lineInfo = issue.line ? `줄 ${issue.line}${issue.col ? ', 열 '+issue.col : ''}` : ''
+    return `
+    <div style="border-left:4px solid ${tc};margin-bottom:12px;padding:10px 14px;background:#fafafa;border-radius:0 6px 6px 0;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-        <strong style="font-size:13px;color:#1e293b;">"${escapeHtml(issue.word)}"</strong>
-        <span style="background:${issue.type==='korean'?'#8b5cf6':'#0891b2'};color:white;padding:1px 8px;border-radius:10px;font-size:10px;">${issue.type==='korean'?'한글':'영문'}</span>
+        <span style="font-size:13px;color:#1e293b;">
+          <strong style="color:#dc2626;">"${escapeHtml(issue.word)}"</strong>
+          <span style="color:#94a3b8;margin:0 6px;">→</span>
+          <strong style="color:#059669;">"${escapeHtml(issue.suggestion)}"</strong>
+        </span>
+        <span style="background:${tc};color:white;padding:1px 8px;border-radius:10px;font-size:10px;">${tl}</span>
       </div>
-      <div style="font-size:12px;color:#475569;margin-bottom:4px;">✏️ 제안: <strong style="color:#059669;">${escapeHtml(issue.suggestion)}</strong></div>
       ${issue.desc?`<div style="font-size:11px;color:#64748b;margin-bottom:4px;">${escapeHtml(issue.desc)}</div>`:''}
-      ${issue.context?`<div style="font-family:monospace;font-size:11px;background:#e2e8f0;padding:3px 8px;border-radius:4px;color:#475569;">"...${escapeHtml(issue.context)}..."</div>`:''}
-    </div>`).join('') : '<div style="text-align:center;padding:24px;color:#22c55e;font-weight:600;">✅ 오탈자가 감지되지 않았습니다.</div>'
+      ${issue.context?`<div style="font-family:monospace;font-size:11px;background:#e2e8f0;padding:3px 8px;border-radius:4px;color:#475569;margin-bottom:4px;">${escapeHtml(issue.context)}</div>`:''}
+      <div style="font-size:11px;color:#94a3b8;display:flex;gap:12px;flex-wrap:wrap;">
+        ${lineInfo ? `<span>📍 ${lineInfo}</span>` : ''}
+        ${issue.pageUrl ? `<span>🔗 ${escapeHtml(issue.pageUrl)}</span>` : ''}
+      </div>
+    </div>`
+  }).join('') : '<div style="text-align:center;padding:24px;color:#22c55e;font-weight:600;">✅ 오탈자가 감지되지 않았습니다.</div>'
+
 
   // 데드링크 HTML
   const lk = result.links || {}
@@ -766,6 +939,94 @@ async function fetchMinwonPage(query, startCount, listCount) {
 // ─── 배치 스캔 API ────────────────────────────────────
 // ═══════════════════════════════════════════════════════
 
+// ─── W3C Link Checker (validator.w3.org/checklink) ────
+// 대상 URL을 W3C 공식 링크 검사기에 전달해 데드/리다이렉트 링크를 수집
+async function checkLinksWithW3C(targetUrl) {
+  const CHECK_URL = 'https://validator.w3.org/checklink'
+  const params = new URLSearchParams({
+    uri: targetUrl,
+    hide_type: 'all',     // 리다이렉트 숨기기 (broken만 표시)
+    depth: '0',           // 해당 페이지만 (recursive 없음)
+    check: 'Check',
+    _charset_: 'UTF-8',
+    summary: 'on',
+  })
+  try {
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), 60000)   // 최대 60초
+    const resp = await fetch(`${CHECK_URL}?${params.toString()}`, {
+      signal: ctrl.signal,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (A11y-Inspector/1.0; +https://github.com/a11y-inspector)',
+        'Accept': 'text/html,application/xhtml+xml'
+      }
+    })
+    clearTimeout(timer)
+    const html = await resp.text()
+
+    // HTML 파싱: <dt> 블록에서 링크 정보 추출
+    const dead = []
+    const redirects = []
+    let total = 0
+
+    // 전체 체크된 링크 수 파악
+    const checkedMatch = html.match(/Checked\s+(\d+)\s+(?:link|document)/i)
+    if (checkedMatch) total = parseInt(checkedMatch[1], 10)
+
+    // broken/error 링크 추출
+    // 패턴: <dt>...<span class='msg_loc'>Line: N</span>...<a href="URL">URL</a>...broken...</dt>
+    //       <dd>...<strong>Status</strong>: CODE ...</dd>
+    const dtBlocks = html.match(/<dt>[\s\S]*?<\/dd>/g) || []
+    for (const block of dtBlocks) {
+      const lineM   = block.match(/Line:\s*(\d+)/i)
+      const urlM    = block.match(/<a href="(https?:\/\/[^"]+)"/)
+      const statusM = block.match(/<strong>Status<\/strong>:\s*(\d+)/)
+      const msgM    = block.match(/<dd[^>]*class=['"]message_explanation['"][^>]*>([\s\S]*?)<\/dd>/)
+      const isBroken   = /broken|not found|cannot|refused|timed out|error/i.test(block)
+      const isRedirect = /redirect/i.test(block)
+      const redirectToM = block.match(/redirected[^<]*<a href="(https?:\/\/[^"]+)"/)
+
+      const url    = urlM    ? urlM[1].split('"')[0]   : null
+      const status = statusM ? parseInt(statusM[1], 10) : null
+      const line   = lineM   ? parseInt(lineM[1], 10)   : null
+      const msg    = msgM    ? msgM[1].replace(/<[^>]+>/g, '').trim().substring(0, 120) : null
+
+      if (!url) continue
+
+      if (isBroken) {
+        dead.push({ url, status, line, error: msg || null, source: targetUrl })
+      } else if (isRedirect) {
+        redirects.push({
+          url,
+          status,
+          line,
+          redirectUrl: redirectToM ? redirectToM[1] : null,
+          source: targetUrl
+        })
+      }
+    }
+
+    return {
+      engine: 'w3c-checklink',
+      checkedAt: new Date().toISOString(),
+      dead,
+      redirects,
+      live: Math.max(0, total - dead.length - redirects.length),
+      total,
+      totalRaw: total,
+      raw: html.length,   // 응답 크기 (디버깅용)
+    }
+  } catch (e) {
+    console.error('[W3C LinkChecker] 오류:', e.message)
+    return {
+      engine: 'w3c-checklink',
+      checkedAt: new Date().toISOString(),
+      dead: [], redirects: [], live: 0, total: 0, totalRaw: 0,
+      error: e.message
+    }
+  }
+}
+
 // ─── W3C Markup Validation (validator.w3.org/nu/) ──────
 // HTML 소스를 받아 W3C nu API에 POST로 전송, JSON 결과 파싱
 async function validateW3C(htmlSource, pageUrl) {
@@ -885,10 +1146,21 @@ async function scanSinglePage(url, options = {}) {
       })
     }, level)
 
+    // ── HTML 소스 취득 (줄번호 계산 + W3C 검사 공유) ────
+    const htmlSource = await page.content()
+    const htmlLines  = htmlSource.split('\n')
+
     const violations = axeResults.violations.map(v => ({
       id: v.id, impact: v.impact, description: v.description,
       help: v.help, helpUrl: v.helpUrl, tags: v.tags,
-      nodes: v.nodes.map(n => ({ html: n.html, failureSummary: n.failureSummary, target: n.target }))
+      pageUrl,
+      nodes: v.nodes.map(n => ({
+        html: n.html,
+        failureSummary: n.failureSummary,
+        target: n.target,
+        line: findHtmlLineNumber(n.html, htmlLines),
+        pageUrl,
+      }))
     }))
     const passes = axeResults.passes.length
     const incomplete = axeResults.incomplete.length
@@ -900,10 +1172,11 @@ async function scanSinglePage(url, options = {}) {
       (impactCounts.critical * 10 + impactCounts.serious * 5 + impactCounts.moderate * 2 + impactCounts.minor * 1) / Math.max(1, total) * 100
     )))
 
-    // 오탈자 검사
+    // 오탈자 검사 (Daum 맞춤법 검사기)
     let spellingResult = { issues: [], totalWords: 0, checkedAt: new Date().toISOString() }
     if (checkSpelling) {
-      const pageText = await page.evaluate(() => {
+      const pageLines = await page.evaluate(() => {
+        if (!document.body) return []
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
           acceptNode(node) {
             const tag = node.parentElement?.tagName?.toLowerCase()
@@ -917,19 +1190,47 @@ async function scanSinglePage(url, options = {}) {
           const t = n.textContent.trim()
           if (t.length > 1) texts.push(t)
         }
-        return texts.join(' ')
+        return texts
       })
 
-      const koIssues = checkKoreanTypo(pageText)
-      const wordCount = pageText.split(/\s+/).filter(w => w.length > 0).length
+      const fullText = pageLines.join('\n')
+      const wordCount = fullText.split(/\s+/).filter(w => w.length > 0).length
+
+      const CHUNK_SIZE = 1500
+      const MAX_CHUNKS = 5
+      const chunks = []
+      let lineOffset = 0
+      let buf = []
+      let bufLen = 0
+      for (const line of pageLines) {
+        if (bufLen + line.length + 1 > CHUNK_SIZE && buf.length > 0) {
+          chunks.push({ text: buf.join('\n'), lineOffset })
+          lineOffset += buf.length
+          buf = []
+          bufLen = 0
+          if (chunks.length >= MAX_CHUNKS) break
+        }
+        buf.push(line)
+        bufLen += line.length + 1
+      }
+      if (buf.length > 0 && chunks.length < MAX_CHUNKS) chunks.push({ text: buf.join('\n'), lineOffset })
+
+      let koIssues = []
+      try {
+        koIssues = await checkDaumSpelling(chunks, pageUrl, browser)
+      } catch (e) {
+        console.error('[오탈자] Daum 검사 실패:', e.message)
+      }
       spellingResult = {
-        issues: koIssues.slice(0, 50),
+        issues: koIssues.slice(0, 100),
         totalWords: wordCount,
         totalIssues: koIssues.length,
         koreanIssues: koIssues.length,
+        engine: 'daum',
         checkedAt: new Date().toISOString()
       }
     }
+
 
     // 데드링크 검사 (배치에서는 기본 비활성화로 속도 향상)
     let linkResult = { dead: [], redirects: [], live: 0, total: 0, checkedAt: new Date().toISOString() }
@@ -959,8 +1260,7 @@ async function scanSinglePage(url, options = {}) {
     // ── W3C Markup Validation ──────────────────────────
     let w3cResult = { valid: null, errorCount: 0, warningCount: 0, fatalCount: 0, errors: [], warnings: [] }
     if (checkW3C) {
-      // 렌더링된 HTML 소스 추출 (DOCTYPE 포함)
-      const htmlSource = await page.content()
+      // htmlSource는 이미 위에서 취득
       w3cResult = await validateW3C(htmlSource, pageUrl)
     }
 
@@ -1675,16 +1975,31 @@ function generateReportHtml(result) {
     </div>`).join('')
 
   const sp = result.spelling || {}
-  const spellingHtml = (sp.issues && sp.issues.length > 0) ? sp.issues.map((issue, i) => `
-    <div style="border-left:4px solid #8b5cf6;margin-bottom:12px;padding:10px 14px;background:#fafafa;border-radius:0 6px 6px 0;">
+  const _SPELL_TYPE_LABEL = { spell: '철자 오류', spacing: '띄어쓰기', ambiguous: '문맥 오류', stat: '통계 교정', korean: '한글', unknown: '기타' }
+  const _SPELL_TYPE_COLOR = { spell: '#dc2626', spacing: '#d97706', ambiguous: '#ea580c', stat: '#2563eb', korean: '#8b5cf6', unknown: '#6b7280' }
+  const spellingHtml = (sp.issues && sp.issues.length > 0) ? sp.issues.map((issue, i) => {
+    const tc = _SPELL_TYPE_COLOR[issue.type] || '#8b5cf6'
+    const tl = _SPELL_TYPE_LABEL[issue.type] || '기타'
+    const lineInfo = issue.line ? `줄 ${issue.line}${issue.col ? ', 열 '+issue.col : ''}` : ''
+    return `
+    <div style="border-left:4px solid ${tc};margin-bottom:12px;padding:10px 14px;background:#fafafa;border-radius:0 6px 6px 0;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-        <strong style="font-size:13px;color:#1e293b;">"${escapeHtml(issue.word)}"</strong>
-        <span style="background:#8b5cf6;color:white;padding:1px 8px;border-radius:10px;font-size:10px;">한글</span>
+        <span style="font-size:13px;color:#1e293b;">
+          <strong style="color:#dc2626;">"${escapeHtml(issue.word)}"</strong>
+          <span style="color:#94a3b8;margin:0 6px;">→</span>
+          <strong style="color:#059669;">"${escapeHtml(issue.suggestion)}"</strong>
+        </span>
+        <span style="background:${tc};color:white;padding:1px 8px;border-radius:10px;font-size:10px;">${tl}</span>
       </div>
-      <div style="font-size:12px;color:#475569;margin-bottom:4px;">✏️ 제안: <strong style="color:#059669;">${escapeHtml(issue.suggestion)}</strong></div>
       ${issue.desc?`<div style="font-size:11px;color:#64748b;margin-bottom:4px;">${escapeHtml(issue.desc)}</div>`:''}
-      ${issue.context?`<div style="font-family:monospace;font-size:11px;background:#e2e8f0;padding:3px 8px;border-radius:4px;color:#475569;">"...${escapeHtml(issue.context)}..."</div>`:''}
-    </div>`).join('') : '<div style="text-align:center;padding:24px;color:#22c55e;font-weight:600;">✅ 오탈자가 감지되지 않았습니다.</div>'
+      ${issue.context?`<div style="font-family:monospace;font-size:11px;background:#e2e8f0;padding:3px 8px;border-radius:4px;color:#475569;margin-bottom:4px;">${escapeHtml(issue.context)}</div>`:''}
+      <div style="font-size:11px;color:#94a3b8;display:flex;gap:12px;flex-wrap:wrap;">
+        ${lineInfo ? `<span>📍 ${lineInfo}</span>` : ''}
+        ${issue.pageUrl ? `<span>🔗 ${escapeHtml(issue.pageUrl)}</span>` : ''}
+      </div>
+    </div>`
+  }).join('') : '<div style="text-align:center;padding:24px;color:#22c55e;font-weight:600;">✅ 오탈자가 감지되지 않았습니다.</div>'
+
 
   const lk = result.links || {}
   const deadLinksHtml = (lk.dead && lk.dead.length > 0) ? lk.dead.map((link, i) => `

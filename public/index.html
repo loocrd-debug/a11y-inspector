@@ -825,7 +825,8 @@ function renderW3C(w3c) {
   }
 }
 
-// ── 차트 ───────────────────────────────────function renderCharts(data) {
+// ── 차트 ───────────────────────────────────
+function renderCharts(data) {
   Object.values(charts).forEach(c => c?.destroy())
   charts = {}
   const ic = data.summary.impactCounts

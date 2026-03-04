@@ -223,18 +223,41 @@
                     <div class="text-xs text-gray-400">한국어 검사</div>
                   </div>
                 </label>
-                <label class="flex items-center gap-2 p-2.5 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition">
-                  <input type="checkbox" id="opt-links" class="w-4 h-4 rounded text-blue-600">
-                  <div>
-                    <div class="text-xs font-semibold">링크 검사</div>
-                    <div class="text-xs text-gray-400">느릴 수 있음</div>
-                  </div>
-                </label>
+                <!-- 링크 검사 + W3C Link Checker 서브옵션 -->
+                <div class="flex flex-col gap-1 p-2.5 border border-gray-200 rounded-lg bg-white">
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" id="opt-links" class="w-4 h-4 rounded text-blue-600"
+                      onchange="document.getElementById('opt-w3c-links-wrap').classList.toggle('hidden', !this.checked)">
+                    <div>
+                      <div class="text-xs font-semibold">링크 검사</div>
+                      <div class="text-xs text-gray-400">느릴 수 있음</div>
+                    </div>
+                  </label>
+                  <label id="opt-w3c-links-wrap" class="hidden flex items-center gap-1.5 pl-1 cursor-pointer">
+                    <input type="checkbox" id="opt-w3c-links" class="w-3.5 h-3.5 rounded accent-teal-600">
+                    <span class="text-xs text-teal-700 font-medium"><i class="fas fa-globe mr-0.5"></i>W3C Link Checker</span>
+                  </label>
+                </div>
                 <label class="flex items-center gap-2 p-2.5 border border-blue-200 bg-blue-50 rounded-lg cursor-pointer hover:bg-blue-100 transition">
                   <input type="checkbox" id="opt-w3c" class="w-4 h-4 rounded text-blue-600">
                   <div>
                     <div class="text-xs font-semibold text-blue-700">W3C 표준</div>
                     <div class="text-xs text-blue-400">마크업 검증</div>
+                  </div>
+                </label>
+              </div>
+
+              <!-- 컨테이너만 검사 옵션 -->
+              <div class="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" id="opt-container" class="w-4 h-4 rounded accent-amber-600">
+                  <div>
+                    <div class="text-xs font-semibold text-amber-800">
+                      <i class="fas fa-compress-alt mr-1"></i>컨테이너만 검사
+                    </div>
+                    <div class="text-xs text-amber-600">
+                      <code class="bg-amber-100 px-1 rounded text-xs">&lt;!-- cont-inner info-detail// --&gt;</code> 영역만 오탈자·링크 검사 (빠름)
+                    </div>
                   </div>
                 </label>
               </div>
@@ -638,12 +661,15 @@
       btn.disabled = true
       btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>스캔 시작 중...'
 
+      const _chkLinks = document.getElementById('opt-links').checked
       const options = {
         level: document.getElementById('scan-level').value,
         includeScreenshot: document.getElementById('opt-screenshot').checked,
         checkSpelling: document.getElementById('opt-spelling').checked,
-        checkLinks: document.getElementById('opt-links').checked,
-        checkW3C: document.getElementById('opt-w3c').checked
+        checkLinks: _chkLinks,
+        useW3CLinks: _chkLinks && document.getElementById('opt-w3c-links').checked,
+        checkW3C: document.getElementById('opt-w3c').checked,
+        containerOnly: document.getElementById('opt-container').checked
       }
 
       try {
@@ -886,12 +912,15 @@
       const btns = [document.getElementById('start-all-btn'), document.getElementById('start-all-btn2')]
       btns.forEach(b => { if(b) { b.disabled = true; b.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>수집 중...' } })
 
+      const _chkLinks2 = document.getElementById('opt-links').checked
       const options = {
         level: document.getElementById('scan-level').value,
         includeScreenshot: document.getElementById('opt-screenshot').checked,
         checkSpelling: document.getElementById('opt-spelling').checked,
-        checkLinks: document.getElementById('opt-links').checked,
-        checkW3C: document.getElementById('opt-w3c').checked
+        checkLinks: _chkLinks2,
+        useW3CLinks: _chkLinks2 && document.getElementById('opt-w3c-links').checked,
+        checkW3C: document.getElementById('opt-w3c').checked,
+        containerOnly: document.getElementById('opt-container').checked
       }
 
       const queryInput = document.getElementById('search-query')
@@ -1090,10 +1119,13 @@
           const engineBadge = sp.engine === 'daum'
             ? '<span class="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-semibold">다음 맞춤법</span>'
             : ''
+          const containerBadgeSp = sp.containerOnly
+            ? '<span class="ml-1 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold"><i class="fas fa-compress-alt mr-0.5"></i>컨테이너만</span>'
+            : ''
           html += `<div class="mb-5">
-            <h4 class="font-bold text-gray-700 text-sm mb-3 flex items-center gap-2">
+            <h4 class="font-bold text-gray-700 text-sm mb-3 flex items-center gap-2 flex-wrap">
               <i class="fas fa-spell-check text-purple-500"></i>
-              오탈자 (${sp.issues.length}개)${engineBadge}
+              오탈자 (${sp.issues.length}개)${engineBadge}${containerBadgeSp}
             </h4>`
           html += sp.issues.map(issue => {
             const typeLabel = TYPE_LABEL[issue.type] || '기타'
@@ -1120,18 +1152,44 @@
         }
 
         // 데드링크
-        if (lk.dead && lk.dead.length > 0) {
+        if (lk && (lk.dead?.length > 0 || lk.redirects?.length > 0 || lk.total > 0)) {
+          const engineBadgeLk = lk.engine === 'w3c'
+            ? '<span class="ml-2 text-xs bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded font-semibold"><i class="fas fa-globe mr-0.5"></i>W3C Link Checker</span>'
+            : '<span class="ml-2 text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded font-semibold">내장 검사기</span>'
+          const containerBadgeLk = lk.containerOnly
+            ? '<span class="ml-1 text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-semibold"><i class="fas fa-compress-alt mr-0.5"></i>컨테이너만</span>'
+            : ''
           html += `<div class="mb-5">
-            <h4 class="font-bold text-gray-700 text-sm mb-3 flex items-center gap-2">
+            <h4 class="font-bold text-gray-700 text-sm mb-3 flex items-center gap-2 flex-wrap">
               <i class="fas fa-link-slash text-red-500"></i>
-              데드링크 (${lk.dead.length}개)
+              링크 검사 결과
+              <span class="font-normal text-gray-500 text-xs">데드: ${lk.dead?.length||0}개 / 리다이렉트: ${lk.redirects?.length||0}개 / 전체: ${lk.total||0}개</span>
+              ${engineBadgeLk}${containerBadgeLk}
             </h4>`
-          html += lk.dead.map(link => `
-            <div class="border-l-4 border-red-400 mb-2 p-2.5 rounded-r-lg bg-red-50 text-xs">
-              <code class="text-gray-700 break-all">${escHtml(link.url)}</code>
-              <span class="ml-2 bg-red-500 text-white px-1.5 py-0.5 rounded text-xs">${link.status||'오류'}</span>
-              ${link.error ? `<div class="text-red-600 mt-1">⚠ ${escHtml(link.error)}</div>` : ''}
-            </div>`).join('')
+          if (lk.dead && lk.dead.length > 0) {
+            html += `<div class="mb-2 text-xs font-semibold text-red-700 flex items-center gap-1"><i class="fas fa-times-circle"></i>데드링크 (${lk.dead.length}개)</div>`
+            html += lk.dead.map(link => `
+              <div class="border-l-4 border-red-400 mb-2 p-2.5 rounded-r-lg bg-red-50 text-xs">
+                <code class="text-gray-700 break-all">${escHtml(link.url)}</code>
+                <span class="ml-2 bg-red-500 text-white px-1.5 py-0.5 rounded text-xs">${link.status||'오류'}</span>
+                ${link.line ? `<span class="ml-1 text-gray-400 font-mono text-xs"><i class="fas fa-code mr-0.5 text-violet-400"></i>줄 ${link.line}</span>` : ''}
+                ${link.text ? `<span class="ml-2 text-gray-500 italic truncate">"${escHtml(link.text)}"</span>` : ''}
+                ${link.error ? `<div class="text-red-600 mt-1">⚠ ${escHtml(link.error)}</div>` : ''}
+              </div>`).join('')
+          }
+          if (lk.redirects && lk.redirects.length > 0) {
+            html += `<div class="mb-2 mt-3 text-xs font-semibold text-amber-700 flex items-center gap-1"><i class="fas fa-random"></i>리다이렉트 (${lk.redirects.length}개)</div>`
+            html += lk.redirects.slice(0, 20).map(link => `
+              <div class="border-l-4 border-amber-400 mb-2 p-2.5 rounded-r-lg bg-amber-50 text-xs">
+                <code class="text-gray-700 break-all">${escHtml(link.url)}</code>
+                <span class="ml-2 bg-amber-500 text-white px-1.5 py-0.5 rounded text-xs">${link.status||'리다이렉트'}</span>
+                ${link.line ? `<span class="ml-1 text-gray-400 font-mono text-xs"><i class="fas fa-code mr-0.5 text-violet-400"></i>줄 ${link.line}</span>` : ''}
+                ${link.redirectUrl ? `<div class="text-amber-700 mt-1 break-all">→ ${escHtml(link.redirectUrl)}</div>` : ''}
+              </div>`).join('')
+          }
+          if (!lk.dead?.length && !lk.redirects?.length) {
+            html += `<div class="bg-green-50 rounded p-3 text-center text-green-700 text-xs font-semibold">✅ 모든 링크 정상</div>`
+          }
           html += '</div>'
         }
 

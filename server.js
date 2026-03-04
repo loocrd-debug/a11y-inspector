@@ -1108,7 +1108,9 @@ async function scanSinglePage(url, options = {}) {
     includeScreenshot = true,
     checkSpelling = true,
     checkLinks = false,
-    checkW3C = false
+    useW3CLinks = false,      // W3C Link Checker 사용 여부
+    checkW3C = false,
+    containerOnly = false,    // true: <!-- cont-inner info-detail// --> 영역만 검사
   } = options
   
   let browser
@@ -1173,31 +1175,59 @@ async function scanSinglePage(url, options = {}) {
     )))
 
     // 오탈자 검사 (Daum 맞춤법 검사기)
+    // containerOnly=true 이면 <!-- cont-inner info-detail// --> 주석 사이 HTML만 검사
     let spellingResult = { issues: [], totalWords: 0, checkedAt: new Date().toISOString() }
     if (checkSpelling) {
-      const pageLines = await page.evaluate(() => {
-        if (!document.body) return []
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-          acceptNode(node) {
-            const tag = node.parentElement?.tagName?.toLowerCase()
-            if (['script', 'style', 'noscript', 'code', 'pre'].includes(tag)) return NodeFilter.FILTER_REJECT
-            return NodeFilter.FILTER_ACCEPT
+      let pageLines
+      if (containerOnly) {
+        // HTML 소스에서 컨테이너 영역 추출 후 텍스트 파싱
+        pageLines = await page.evaluate((src) => {
+          // <!-- cont-inner info-detail// --> 주석 사이 내용 추출
+          const m = src.match(/<!--\s*cont-inner\s+info-detail[^>]*?-->([\s\S]*?)<!--\s*cont-inner\s+info-detail[^>]*?\/\/\s*-->/)
+          const region = m ? m[1] : src
+          // 임시 div에 파싱해 텍스트 추출
+          const div = document.createElement('div')
+          div.innerHTML = region
+          const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+              const tag = node.parentElement?.tagName?.toLowerCase()
+              if (['script','style','noscript','code','pre'].includes(tag)) return NodeFilter.FILTER_REJECT
+              return NodeFilter.FILTER_ACCEPT
+            }
+          })
+          const texts = []
+          let n
+          while ((n = walker.nextNode())) {
+            const t = n.textContent.trim()
+            if (t.length > 1) texts.push(t)
           }
+          return texts
+        }, htmlSource)
+      } else {
+        pageLines = await page.evaluate(() => {
+          if (!document.body) return []
+          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+            acceptNode(node) {
+              const tag = node.parentElement?.tagName?.toLowerCase()
+              if (['script', 'style', 'noscript', 'code', 'pre'].includes(tag)) return NodeFilter.FILTER_REJECT
+              return NodeFilter.FILTER_ACCEPT
+            }
+          })
+          const texts = []
+          let n
+          while ((n = walker.nextNode())) {
+            const t = n.textContent.trim()
+            if (t.length > 1) texts.push(t)
+          }
+          return texts
         })
-        const texts = []
-        let n
-        while ((n = walker.nextNode())) {
-          const t = n.textContent.trim()
-          if (t.length > 1) texts.push(t)
-        }
-        return texts
-      })
+      }
 
       const fullText = pageLines.join('\n')
       const wordCount = fullText.split(/\s+/).filter(w => w.length > 0).length
 
       const CHUNK_SIZE = 1500
-      const MAX_CHUNKS = 5
+      const MAX_CHUNKS = containerOnly ? 2 : 5   // 컨테이너만 모드는 청크 더 적게
       const chunks = []
       let lineOffset = 0
       let buf = []
@@ -1227,34 +1257,89 @@ async function scanSinglePage(url, options = {}) {
         totalIssues: koIssues.length,
         koreanIssues: koIssues.length,
         engine: 'daum',
+        containerOnly,
         checkedAt: new Date().toISOString()
       }
     }
 
 
-    // 데드링크 검사 (배치에서는 기본 비활성화로 속도 향상)
+    // 데드링크 검사
     let linkResult = { dead: [], redirects: [], live: 0, total: 0, checkedAt: new Date().toISOString() }
     if (checkLinks) {
-      const rawLinks = await page.evaluate(() => {
-        const links = []
-        document.querySelectorAll('a[href], link[href]').forEach(el => {
-          const href = el.getAttribute('href')
-          const text = el.textContent?.trim().substring(0, 60) || el.tagName
-          if (href) links.push({ href, text })
-        })
-        return links
-      })
-      const resolvedLinks = rawLinks
-        .map(l => ({ ...l, resolved: normalizeUrl(l.href, pageUrl) }))
-        .filter(l => l.resolved !== null)
-      const uniqueUrls = [...new Set(resolvedLinks.map(l => l.resolved))]
-      const linkTextMap = {}
-      resolvedLinks.forEach(l => { if (!linkTextMap[l.resolved]) linkTextMap[l.resolved] = l.text })
-      const { results, total } = await checkDeadLinks(uniqueUrls, pageUrl, page)
-      const dead = results.filter(r => !r.ok).map(r => ({ ...r, text: linkTextMap[r.url] || '' }))
-      const redirects = results.filter(r => r.ok && r.redirectUrl).map(r => ({ ...r, text: linkTextMap[r.url] || '' }))
-      const live = results.filter(r => r.ok).length
-      linkResult = { dead, redirects, live, total, totalRaw: rawLinks.length, checkedAt: new Date().toISOString() }
+      if (useW3CLinks) {
+        // ── W3C Link Checker 사용 ─────────────────────
+        // containerOnly=true 이면 컨테이너 영역의 링크만 추출하여 개별 검사
+        if (containerOnly) {
+          const containerLinks = await page.evaluate((src) => {
+            const m = src.match(/<!--\s*cont-inner\s+info-detail[^>]*?-->([\s\S]*?)<!--\s*cont-inner\s+info-detail[^>]*?\/\/\s*-->/)
+            const region = m ? m[1] : ''
+            if (!region) return []
+            const div = document.createElement('div')
+            div.innerHTML = region
+            const links = []
+            div.querySelectorAll('a[href]').forEach(el => {
+              const href = el.getAttribute('href')
+              const text = el.textContent?.trim().substring(0, 60) || ''
+              if (href && /^https?:/.test(href)) links.push({ href, text })
+            })
+            return links
+          }, htmlSource)
+          const w3cFull = await checkLinksWithW3C(pageUrl)
+          const containerHrefs = new Set(containerLinks.map(l => l.href))
+          const filterByContainer = (arr) => containerHrefs.size
+            ? arr.filter(item => containerHrefs.has(item.url))
+            : arr
+          linkResult = {
+            ...w3cFull,
+            dead: filterByContainer(w3cFull.dead),
+            redirects: filterByContainer(w3cFull.redirects),
+            containerOnly: true
+          }
+        } else {
+          linkResult = await checkLinksWithW3C(pageUrl)
+        }
+      } else {
+        // ── 내장 HEAD/GET 검사 ─────────────────────────
+        // containerOnly=true 이면 컨테이너 영역의 링크만 수집
+        let rawLinks
+        if (containerOnly) {
+          rawLinks = await page.evaluate((src) => {
+            const m = src.match(/<!--\s*cont-inner\s+info-detail[^>]*?-->([\s\S]*?)<!--\s*cont-inner\s+info-detail[^>]*?\/\/\s*-->/)
+            const region = m ? m[1] : ''
+            if (!region) return []
+            const div = document.createElement('div')
+            div.innerHTML = region
+            const links = []
+            div.querySelectorAll('a[href]').forEach(el => {
+              const href = el.getAttribute('href')
+              const text = el.textContent?.trim().substring(0, 60) || ''
+              if (href) links.push({ href, text })
+            })
+            return links
+          }, htmlSource)
+        } else {
+          rawLinks = await page.evaluate(() => {
+            const links = []
+            document.querySelectorAll('a[href], link[href]').forEach(el => {
+              const href = el.getAttribute('href')
+              const text = el.textContent?.trim().substring(0, 60) || el.tagName
+              if (href) links.push({ href, text })
+            })
+            return links
+          })
+        }
+        const resolvedLinks = rawLinks
+          .map(l => ({ ...l, resolved: normalizeUrl(l.href, pageUrl) }))
+          .filter(l => l.resolved !== null)
+        const uniqueUrls = [...new Set(resolvedLinks.map(l => l.resolved))]
+        const linkTextMap = {}
+        resolvedLinks.forEach(l => { if (!linkTextMap[l.resolved]) linkTextMap[l.resolved] = l.text })
+        const { results, total } = await checkDeadLinks(uniqueUrls, pageUrl, page)
+        const dead = results.filter(r => !r.ok).map(r => ({ ...r, text: linkTextMap[r.url] || '' }))
+        const redirects = results.filter(r => r.ok && r.redirectUrl).map(r => ({ ...r, text: linkTextMap[r.url] || '' }))
+        const live = results.filter(r => r.ok).length
+        linkResult = { engine: 'internal', dead, redirects, live, total, totalRaw: rawLinks.length, containerOnly, checkedAt: new Date().toISOString() }
+      }
     }
 
     // ── W3C Markup Validation ──────────────────────────

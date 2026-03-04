@@ -55,6 +55,7 @@
       <span><i class="fas fa-universal-access mr-1 text-green-300"></i>WCAG 2.1 접근성</span>
       <span><i class="fas fa-spell-check mr-1 text-purple-300"></i>한글 오탈자</span>
       <span><i class="fas fa-link mr-1 text-yellow-300"></i>데드링크 검사</span>
+      <span><i class="fas fa-code mr-1 text-blue-300"></i>W3C 표준검사</span>
       <span><i class="fas fa-camera mr-1 text-pink-300"></i>스크린샷 증적</span>
       <span><i class="fas fa-file-download mr-1 text-orange-300"></i>HTML 보고서</span>
       <a href="/minwon.html" class="ml-auto flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white px-3 py-1.5 rounded-lg font-semibold transition border border-white/20">
@@ -82,7 +83,7 @@
         <input id="urlInput" type="url" placeholder="https://example.com"
           class="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 bg-slate-50 focus:bg-white transition-colors text-base" />
       </div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div>
           <label class="block text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide">WCAG 레벨</label>
           <select id="levelSelect" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 focus:bg-white transition-colors">
@@ -115,6 +116,17 @@
           <div class="flex gap-3 items-center h-10">
             <label class="flex items-center gap-1.5 cursor-pointer text-sm">
               <input type="checkbox" id="chkLinks" checked class="w-4 h-4 accent-amber-600" /> 활성화
+            </label>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide flex items-center gap-1">
+            <span>W3C 표준검사</span>
+            <span class="text-blue-500 text-xs normal-case font-normal">(마크업)</span>
+          </label>
+          <div class="flex gap-3 items-center h-10">
+            <label class="flex items-center gap-1.5 cursor-pointer text-sm">
+              <input type="checkbox" id="chkW3C" class="w-4 h-4 accent-blue-600" /> 활성화
             </label>
           </div>
         </div>
@@ -207,6 +219,11 @@
         <button class="main-tab-btn flex-1 py-3.5 px-3 text-sm font-semibold text-slate-500 flex items-center justify-center gap-2" onclick="switchMainTab('chart', this)">
           <i class="fas fa-chart-pie text-green-500"></i>
           <span class="hidden sm:inline">차트</span>
+        </button>
+        <button id="tab-btn-w3c" class="main-tab-btn flex-1 py-3.5 px-3 text-sm font-semibold text-slate-500 flex items-center justify-center gap-2 hidden" onclick="switchMainTab('w3c', this)">
+          <i class="fas fa-code text-blue-500"></i>
+          <span class="hidden sm:inline">W3C</span>
+          <span id="badge-w3c" class="badge-pill bg-blue-100 text-blue-600"></span>
         </button>
       </div>
 
@@ -318,6 +335,41 @@
           <div><h3 class="font-semibold text-slate-700 mb-3 text-center text-sm">링크 상태 분포</h3><canvas id="linkChart" height="240"></canvas></div>
         </div>
       </div>
+
+      <!-- ── W3C 탭 ── -->
+      <div id="tab-w3c" class="p-6 hidden">
+        <!-- W3C KPI -->
+        <div class="flex flex-wrap gap-3 mb-5" id="w3cSummaryBars"></div>
+        <!-- W3C 미수행 안내 -->
+        <div id="w3cNotRun" class="hidden text-center py-12 text-slate-400">
+          <i class="fas fa-ban text-3xl mb-3 block"></i>
+          <p>W3C 표준검사가 비활성화되었습니다.</p>
+          <p class="text-xs mt-1">검사 설정에서 'W3C 표준검사'를 활성화하세요.</p>
+        </div>
+        <!-- W3C 오류 없음 -->
+        <div id="noW3CErrors" class="hidden text-center py-12">
+          <div class="text-5xl mb-3">✅</div>
+          <p class="text-lg font-bold text-green-600">W3C 마크업 오류 없음!</p>
+          <p class="text-slate-400 text-sm mt-1">HTML 문서가 W3C 표준을 준수합니다.</p>
+        </div>
+        <!-- W3C 오류 목록 -->
+        <div id="w3cErrorsList"></div>
+        <!-- W3C 경고 -->
+        <div id="w3cWarningSection" class="hidden">
+          <h3 class="font-semibold text-slate-700 mb-3 flex items-center gap-2 mt-4">
+            <i class="fas fa-exclamation-triangle text-amber-500"></i>
+            경고 목록
+            <span id="badge-w3c-warn" class="badge-pill bg-amber-100 text-amber-700"></span>
+          </h3>
+          <div id="w3cWarningsList"></div>
+        </div>
+        <!-- W3C 정보 -->
+        <div id="w3cInfo" class="hidden text-xs text-slate-400 mt-4 pt-4 border-t border-slate-100">
+          <i class="fas fa-info-circle mr-1"></i>
+          검사 기준: W3C Markup Validation Service (validator.w3.org/nu) |
+          검사 일시: <span id="w3cCheckedAt">-</span>
+        </div>
+      </div>
     </div>
 
   </div><!-- /resultArea -->
@@ -353,6 +405,7 @@ async function startScan() {
   const includeScreenshot = document.querySelector('input[name="screenshot"]:checked').value === 'true'
   const checkSpelling = document.getElementById('chkSpell').checked
   const checkLinks = document.getElementById('chkLinks').checked
+  const checkW3C = document.getElementById('chkW3C').checked
 
   document.getElementById('errorBox').classList.add('hidden')
   document.getElementById('resultArea').classList.add('hidden')
@@ -368,6 +421,7 @@ async function startScan() {
     '접근성 검사 (axe-core)...',
     checkSpelling ? '오탈자 검사 중...' : null,
     checkLinks ? '링크 유효성 검사 중...' : null,
+    checkW3C ? 'W3C 표준 검사 중...' : null,
     '결과 정리 중...'
   ].filter(Boolean)
   let stepIdx = 0
@@ -386,7 +440,7 @@ async function startScan() {
     const res = await fetch('/api/scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, level, includeScreenshot, checkSpelling, checkLinks })
+      body: JSON.stringify({ url, level, includeScreenshot, checkSpelling, checkLinks, checkW3C })
     })
     const data = await res.json()
     if (!res.ok) throw new Error(data.error || '서버 오류')
@@ -418,11 +472,20 @@ function renderAll(data) {
   renderAccessibility(data)
   renderSpelling(data.spelling)
   renderLinks(data.links)
+  renderW3C(data.w3c)
   renderCharts(data)
   // 배지 업데이트
   document.getElementById('badge-accessibility').textContent = data.summary.violations
   document.getElementById('badge-spelling').textContent = data.spelling?.totalIssues || 0
   document.getElementById('badge-links').textContent = data.links?.dead?.length || 0
+  // W3C 탭 표시/숨김
+  const w3cTabBtn = document.getElementById('tab-btn-w3c')
+  if (data.w3c?.checkedAt) {
+    w3cTabBtn.classList.remove('hidden')
+    document.getElementById('badge-w3c').textContent = data.w3c.errorCount || 0
+  } else {
+    w3cTabBtn.classList.add('hidden')
+  }
 }
 
 // ── 헤더/요약 ──────────────────────────────
@@ -433,8 +496,10 @@ function renderHeader(data) {
 
   const sp = data.spelling || {}
   const lk = data.links || {}
+  const w3c = data.w3c || {}
   const deadCnt = lk.dead?.length || 0
   const spellCnt = sp.totalIssues || 0
+  const w3cErrCnt = w3c.errorCount || 0
 
   document.getElementById('topSummaryCards').innerHTML = `
     <div class="rounded-xl p-4 ${data.summary.violations > 0 ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'} text-center cursor-pointer hover:opacity-80 transition-opacity" onclick="switchMainTab('accessibility', document.querySelector('.main-tab-btn'))">
@@ -452,6 +517,12 @@ function renderHeader(data) {
       <div class="text-3xl font-extrabold ${deadCnt > 0 ? 'text-red-600' : 'text-green-600'}">${deadCnt}</div>
       <div class="text-xs text-slate-500 mt-0.5">총 ${lk.total || 0}개 링크 검사</div>
     </div>
+    ${w3c.checkedAt ? `
+    <div class="rounded-xl p-4 ${w3cErrCnt > 0 ? 'bg-orange-50 border border-orange-200' : 'bg-green-50 border border-green-200'} text-center cursor-pointer hover:opacity-80 transition-opacity" onclick="switchMainTabByName('w3c')">
+      <div class="text-xs font-semibold ${w3cErrCnt > 0 ? 'text-orange-500' : 'text-green-600'} mb-1"><i class="fas fa-code mr-1"></i>W3C 표준</div>
+      <div class="text-3xl font-extrabold ${w3cErrCnt > 0 ? 'text-orange-600' : 'text-green-600'}">${w3cErrCnt}</div>
+      <div class="text-xs text-slate-500 mt-0.5">${w3c.valid===true?'유효 ✅':w3c.valid===false?'무효 ❌':'미검사'}</div>
+    </div>` : ''}
   `
 
   // 스크린샷
@@ -645,8 +716,116 @@ function renderLinksList(filter) {
   }).join('')
 }
 
-// ── 차트 ───────────────────────────────────
-function renderCharts(data) {
+// ── W3C 렌더 ───────────────────────────────
+function renderW3C(w3c) {
+  const notRun   = document.getElementById('w3cNotRun')
+  const noErrors = document.getElementById('noW3CErrors')
+  const errList  = document.getElementById('w3cErrorsList')
+  const warnSec  = document.getElementById('w3cWarningSection')
+  const warnList = document.getElementById('w3cWarningsList')
+  const info     = document.getElementById('w3cInfo')
+  const summBars = document.getElementById('w3cSummaryBars')
+
+  if (!w3c || !w3c.checkedAt) {
+    notRun.classList.remove('hidden')
+    noErrors.classList.add('hidden')
+    errList.innerHTML = ''
+    warnSec.classList.add('hidden')
+    summBars.innerHTML = ''
+    info.classList.add('hidden')
+    return
+  }
+
+  notRun.classList.add('hidden')
+  info.classList.remove('hidden')
+  document.getElementById('w3cCheckedAt').textContent = new Date(w3c.checkedAt).toLocaleString('ko-KR')
+
+  // KPI 바
+  summBars.innerHTML = `
+    <div class="rounded-xl p-3.5 ${w3c.errorCount>0?'bg-red-50 border border-red-200':'bg-green-50 border border-green-200'} flex items-center gap-3">
+      <i class="fas fa-times-circle ${w3c.errorCount>0?'text-red-500':'text-green-500'} text-lg"></i>
+      <div>
+        <div class="text-2xl font-extrabold ${w3c.errorCount>0?'text-red-600':'text-green-600'}">${w3c.errorCount||0}</div>
+        <div class="text-xs font-semibold ${w3c.errorCount>0?'text-red-700':'text-green-700'}">오류</div>
+      </div>
+    </div>
+    <div class="rounded-xl p-3.5 ${w3c.warningCount>0?'bg-amber-50 border border-amber-200':'bg-green-50 border border-green-200'} flex items-center gap-3">
+      <i class="fas fa-exclamation-triangle ${w3c.warningCount>0?'text-amber-500':'text-green-500'} text-lg"></i>
+      <div>
+        <div class="text-2xl font-extrabold ${w3c.warningCount>0?'text-amber-600':'text-green-600'}">${w3c.warningCount||0}</div>
+        <div class="text-xs font-semibold ${w3c.warningCount>0?'text-amber-700':'text-green-700'}">경고</div>
+      </div>
+    </div>
+    ${(w3c.fatalCount||0)>0?`
+    <div class="rounded-xl p-3.5 bg-red-50 border border-red-300 flex items-center gap-3">
+      <i class="fas fa-skull text-red-600 text-lg"></i>
+      <div>
+        <div class="text-2xl font-extrabold text-red-700">${w3c.fatalCount}</div>
+        <div class="text-xs font-semibold text-red-700">치명적 오류</div>
+      </div>
+    </div>`:''}
+    <div class="rounded-xl p-3.5 ${w3c.valid===true?'bg-green-50 border border-green-200':w3c.valid===false?'bg-red-50 border border-red-200':'bg-slate-50 border border-slate-200'} flex items-center gap-3">
+      <i class="fas ${w3c.valid===true?'fa-check-circle text-green-500':w3c.valid===false?'fa-times-circle text-red-500':'fa-question-circle text-slate-400'} text-lg"></i>
+      <div>
+        <div class="text-lg font-extrabold ${w3c.valid===true?'text-green-600':w3c.valid===false?'text-red-600':'text-slate-500'}">${w3c.valid===true?'유효':'무효'}</div>
+        <div class="text-xs font-semibold ${w3c.valid===true?'text-green-700':w3c.valid===false?'text-red-700':'text-slate-500'}">유효성</div>
+      </div>
+    </div>
+  `
+
+  // 오류 목록
+  if (!w3c.errors || w3c.errors.length === 0) {
+    errList.innerHTML = ''
+    noErrors.classList.remove('hidden')
+  } else {
+    noErrors.classList.add('hidden')
+    errList.innerHTML = w3c.errors.map((e, i) => `
+      <details class="mb-2.5 rounded-xl border-l-4 border-red-400 bg-white border border-slate-100 shadow-sm overflow-hidden">
+        <summary class="flex items-center justify-between p-3.5 hover:bg-slate-50 transition-colors cursor-pointer">
+          <div class="flex items-center gap-2.5 flex-1 min-w-0">
+            <span class="text-slate-400 font-mono text-xs w-5 shrink-0">${String(i+1).padStart(2,'0')}</span>
+            <i class="fas fa-times-circle text-red-500 shrink-0 text-sm"></i>
+            <div class="min-w-0">
+              <p class="font-semibold text-slate-800 text-sm truncate">${esc(e.message)}</p>
+              ${e.lastLine ? `<p class="text-xs text-slate-400 font-mono">Line ${e.lastLine}${e.lastColumn?', Col '+e.lastColumn:''}</p>` : ''}
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0 ml-2">
+            ${e.subType==='fatal'?'<span class="badge-pill bg-red-100 text-red-700">치명적</span>':''}
+            <i class="fas fa-chevron-down text-slate-400 text-xs chev"></i>
+          </div>
+        </summary>
+        ${e.extract ? `
+        <div class="px-4 pb-4 pt-3 border-t border-slate-100">
+          <p class="text-xs text-slate-500 mb-2">문제 코드:</p>
+          <div class="bg-red-50 rounded-lg p-2 font-mono text-xs text-red-800 break-all border border-red-100">${esc(e.extract)}</div>
+        </div>` : ''}
+      </details>`).join('')
+    if (w3c.errors.length > 0) {
+      errList.innerHTML += `<p class="text-xs text-slate-400 text-center py-2">총 ${w3c.errors.length}건의 오류 · W3C validator.w3.org/nu 기준</p>`
+    }
+  }
+
+  // 경고 목록
+  if (w3c.warnings && w3c.warnings.length > 0) {
+    warnSec.classList.remove('hidden')
+    document.getElementById('badge-w3c-warn').textContent = w3c.warnings.length
+    warnList.innerHTML = w3c.warnings.map((w, i) => `
+      <div class="mb-2 rounded-xl border-l-4 border-amber-400 bg-white border border-slate-100 shadow-sm p-3.5">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-slate-400 font-mono text-xs">${String(i+1).padStart(2,'0')}</span>
+          <i class="fas fa-exclamation-triangle text-amber-500 text-sm"></i>
+          <p class="font-semibold text-slate-800 text-sm flex-1">${esc(w.message)}</p>
+          ${w.lastLine ? `<span class="text-xs text-slate-400 font-mono shrink-0">L${w.lastLine}</span>` : ''}
+        </div>
+        ${w.extract ? `<div class="bg-amber-50 rounded px-2 py-1 font-mono text-xs text-amber-800 break-all mt-1">${esc(w.extract)}</div>` : ''}
+      </div>`).join('')
+  } else {
+    warnSec.classList.add('hidden')
+  }
+}
+
+// ── 차트 ───────────────────────────────────function renderCharts(data) {
   Object.values(charts).forEach(c => c?.destroy())
   charts = {}
   const ic = data.summary.impactCounts
@@ -684,14 +863,14 @@ function renderCharts(data) {
 function switchMainTab(name, btn) {
   document.querySelectorAll('.main-tab-btn').forEach(b => b.classList.remove('active'))
   btn.classList.add('active')
-  ;['accessibility','spelling','links','chart'].forEach(t => {
+  ;['accessibility','spelling','links','chart','w3c'].forEach(t => {
     document.getElementById('tab-'+t)?.classList.add('hidden')
   })
   document.getElementById('tab-'+name)?.classList.remove('hidden')
 }
 function switchMainTabByName(name) {
   const btns = document.querySelectorAll('.main-tab-btn')
-  const tabOrder = ['accessibility','spelling','links','chart']
+  const tabOrder = ['accessibility','spelling','links','chart','w3c']
   const idx = tabOrder.indexOf(name)
   if (idx >= 0 && btns[idx]) switchMainTab(name, btns[idx])
 }

@@ -140,7 +140,8 @@ app.post('/api/scan', async (req, res) => {
     level = 'wcag2aa',
     includeScreenshot = true,
     checkSpelling = true,
-    checkLinks = true
+    checkLinks = true,
+    checkW3C = false
   } = req.body
 
   if (!url) return res.status(400).json({ error: 'URL이 필요합니다.' })
@@ -271,6 +272,13 @@ app.post('/api/scan', async (req, res) => {
       }
     }
 
+    // ── W3C Markup Validation ─────────────────────────
+    let w3cResult = { valid: null, errorCount: 0, warningCount: 0, fatalCount: 0, errors: [], warnings: [] }
+    if (checkW3C) {
+      const htmlSource = await page.content()
+      w3cResult = await validateW3C(htmlSource, pageUrl)
+    }
+
     await browser.close()
 
     return res.json({
@@ -284,7 +292,8 @@ app.post('/api/scan', async (req, res) => {
       violations,
       screenshot: screenshotBase64,
       spelling: spellingResult,
-      links: linkResult
+      links: linkResult,
+      w3c: w3cResult
     })
 
   } catch (err) {
@@ -354,6 +363,31 @@ app.post('/api/report', (req, res) => {
       <div style="color:#92400e;margin-top:2px;">→ ${escapeHtml(link.redirectUrl||'')} (${link.status})</div>
     </div>`).join('') : ''
 
+  // W3C 검사 결과 HTML
+  const w3c = result.w3c || {}
+  const w3cErrorsHtml = (w3c.errors && w3c.errors.length > 0)
+    ? w3c.errors.slice(0, 30).map((e, i) => `
+      <div style="border-left:4px solid #ef4444;margin-bottom:10px;padding:10px 14px;background:#fef2f2;border-radius:0 6px 6px 0;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px;">
+          <div style="font-size:12px;font-weight:600;color:#1e293b;flex:1;">${escapeHtml(e.message)}</div>
+          <div style="display:flex;gap:4px;shrink:0;flex-shrink:0;">
+            ${e.subType==='fatal'?'<span style="background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:4px;">치명적</span>':''}
+            ${e.lastLine?`<span style="font-size:10px;color:#94a3b8;white-space:nowrap;">L${e.lastLine}${e.lastColumn?':C'+e.lastColumn:''}</span>`:''}
+          </div>
+        </div>
+        ${e.extract?`<div style="font-family:monospace;font-size:11px;background:#fee2e2;padding:3px 8px;border-radius:4px;color:#7f1d1d;word-break:break-all;margin-top:4px;">${escapeHtml(e.extract)}</div>`:''}
+      </div>`).join('')
+    + (w3c.errors.length > 30 ? `<div style="text-align:center;color:#94a3b8;font-size:12px;padding:8px">… 외 ${w3c.errors.length-30}건</div>` : '')
+    : '<div style="text-align:center;padding:20px;color:#22c55e;font-weight:600;">✅ W3C 오류가 없습니다.</div>'
+
+  const w3cWarningsHtml = (w3c.warnings && w3c.warnings.length > 0)
+    ? w3c.warnings.slice(0, 15).map((w, i) => `
+      <div style="border-left:4px solid #f59e0b;margin-bottom:8px;padding:8px 12px;background:#fffbeb;border-radius:0 6px 6px 0;">
+        <div style="font-size:12px;color:#1e293b;">${escapeHtml(w.message)}</div>
+        ${w.extract?`<div style="font-family:monospace;font-size:11px;background:#fef3c7;padding:2px 6px;border-radius:3px;color:#78350f;margin-top:3px;word-break:break-all;">${escapeHtml(w.extract)}</div>`:''}
+      </div>`).join('')
+    : ''
+
   const screenshotSection = result.screenshot ? `
     <div class="section"><h2>📸 페이지 스크린샷</h2>
       <img src="data:image/png;base64,${result.screenshot}" style="max-width:100%;border:1px solid #e2e8f0;border-radius:8px;box-shadow:0 4px 6px rgba(0,0,0,0.07);" />
@@ -400,6 +434,7 @@ app.post('/api/report', (req, res) => {
       <span class="badge" style="background:rgba(255,255,255,.2)">♿ 접근성 ${result.level.toUpperCase()}</span>
       <span class="badge" style="background:rgba(255,255,255,.2)">✍️ 오탈자 검사</span>
       <span class="badge" style="background:rgba(255,255,255,.2)">🔗 링크 검사</span>
+      ${w3c.checkedAt ? '<span class="badge" style="background:rgba(255,255,255,.2)">🏷️ W3C 표준검사</span>' : ''}
     </div>
   </div>
 </div>
@@ -425,6 +460,25 @@ app.post('/api/report', (req, res) => {
         <div style="font-size:11px;color:#64748b">총 ${lk.total||0}개 링크 검사</div>
       </div>
     </div>
+    ${w3c.checkedAt ? `
+    <div style="margin-top:12px;padding:12px 16px;border-radius:8px;background:${(w3c.errorCount||0)>0?'#fef2f2':'#f0fdf4'};border:1px solid ${(w3c.errorCount||0)>0?'#fecaca':'#bbf7d0'}">
+      <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+        <div style="font-size:11px;font-weight:700;color:#1e293b;min-width:120px">🏷️ W3C 표준검사</div>
+        <div style="text-align:center;min-width:70px">
+          <div style="font-size:20px;font-weight:800;color:${(w3c.errorCount||0)>0?'#dc2626':'#16a34a'}">${w3c.errorCount||0}</div>
+          <div style="font-size:10px;color:#64748b">오류</div>
+        </div>
+        <div style="text-align:center;min-width:70px">
+          <div style="font-size:20px;font-weight:800;color:${(w3c.warningCount||0)>0?'#d97706':'#16a34a'}">${w3c.warningCount||0}</div>
+          <div style="font-size:10px;color:#64748b">경고</div>
+        </div>
+        <div style="text-align:center;min-width:80px">
+          <span style="font-size:13px;font-weight:700;padding:4px 12px;border-radius:20px;background:${w3c.valid===true?'#dcfce7':w3c.valid===false?'#fee2e2':'#f1f5f9'};color:${w3c.valid===true?'#16a34a':w3c.valid===false?'#dc2626':'#64748b'}">
+            ${w3c.valid===true?'✅ 유효':w3c.valid===false?'❌ 무효':'⚪ 미검사'}
+          </span>
+        </div>
+      </div>
+    </div>` : ''}
   </div>
 
   <!-- 접근성 점수 -->
@@ -493,6 +547,34 @@ app.post('/api/report', (req, res) => {
     ${lk.dead && lk.dead.length > 0 ? `<h3 style="font-size:13px;font-weight:700;color:#dc2626;margin-bottom:8px">❌ 오류 링크 (${lk.dead.length}개)</h3>${deadLinksHtml}` : deadLinksHtml}
     ${redirectLinksHtml ? `<h3 style="font-size:13px;font-weight:700;color:#d97706;margin-top:16px;margin-bottom:8px">↪ 리다이렉트 링크 (${lk.redirects?lk.redirects.length:0}개)</h3>${redirectLinksHtml}` : ''}
   </div>
+
+  ${w3c.checkedAt ? `
+  <!-- W3C 표준 검사 -->
+  <div class="section">
+    <h2>🏷️ W3C 표준 검사 결과 (Markup Validation)</h2>
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+      <div style="background:${(w3c.errorCount||0)>0?'#fef2f2':'#f0fdf4'};padding:10px 16px;border-radius:8px;text-align:center;min-width:80px">
+        <div style="font-size:22px;font-weight:800;color:${(w3c.errorCount||0)>0?'#dc2626':'#16a34a'}">${w3c.errorCount||0}</div>
+        <div style="font-size:11px;color:#64748b">오류</div>
+      </div>
+      <div style="background:${(w3c.warningCount||0)>0?'#fffbeb':'#f0fdf4'};padding:10px 16px;border-radius:8px;text-align:center;min-width:80px">
+        <div style="font-size:22px;font-weight:800;color:${(w3c.warningCount||0)>0?'#d97706':'#16a34a'}">${w3c.warningCount||0}</div>
+        <div style="font-size:11px;color:#64748b">경고</div>
+      </div>
+      ${(w3c.fatalCount||0)>0?`<div style="background:#fef2f2;padding:10px 16px;border-radius:8px;text-align:center;min-width:80px">
+        <div style="font-size:22px;font-weight:800;color:#dc2626">${w3c.fatalCount}</div>
+        <div style="font-size:11px;color:#64748b">치명적</div>
+      </div>`:''}
+      <div style="padding:10px 16px;border-radius:8px;text-align:center">
+        <span style="font-size:14px;font-weight:700;padding:6px 16px;border-radius:20px;background:${w3c.valid===true?'#dcfce7':w3c.valid===false?'#fee2e2':'#f1f5f9'};color:${w3c.valid===true?'#16a34a':w3c.valid===false?'#dc2626':'#64748b'}">
+          ${w3c.valid===true?'✅ 유효 (Valid)':w3c.valid===false?'❌ 무효 (Invalid)':'⚪ 미검사'}
+        </span>
+      </div>
+    </div>
+    ${w3cErrorsHtml}
+    ${w3cWarningsHtml ? `<div style="margin-top:12px;margin-bottom:8px"><strong style="font-size:13px;color:#d97706">⚠️ 경고 목록 (${w3c.warnings.length}건)</strong></div>${w3cWarningsHtml}` : ''}
+    <div style="font-size:10px;color:#94a3b8;margin-top:10px">검사 기준: W3C Markup Validation Service (validator.w3.org/nu) | 검사 일시: ${new Date(w3c.checkedAt).toLocaleString('ko-KR')}</div>
+  </div>` : ''}
 
   <div class="footer">
     <p>본 보고서는 A11y Inspector 자동 검사 결과입니다. (axe-core + Playwright)</p>

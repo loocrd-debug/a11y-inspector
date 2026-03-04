@@ -684,9 +684,89 @@ async function fetchMinwonPage(query, startCount, listCount) {
 // ─── 배치 스캔 API ────────────────────────────────────
 // ═══════════════════════════════════════════════════════
 
+// ─── W3C Markup Validation (validator.w3.org/nu/) ──────
+// HTML 소스를 받아 W3C nu API에 POST로 전송, JSON 결과 파싱
+async function validateW3C(htmlSource, pageUrl) {
+  const W3C_API = 'https://validator.w3.org/nu/'
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), 30000) // 30초 타임아웃
+
+    const res = await fetch(`${W3C_API}?out=json`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'User-Agent': 'A11yInspector/1.0 (+https://github.com/loocrd-debug/a11y-inspector)'
+      },
+      body: htmlSource,
+      signal: controller.signal
+    })
+    clearTimeout(timer)
+
+    if (!res.ok) throw new Error(`W3C API HTTP ${res.status}`)
+    const data = await res.json()
+
+    const messages = data.messages || []
+
+    // 타입별 분류
+    const errors   = messages.filter(m => m.type === 'error')
+    const warnings = messages.filter(m => m.type === 'info' && m.subType === 'warning')
+    const infos    = messages.filter(m => m.type === 'info' && m.subType !== 'warning')
+
+    // 오류 심각도별 분류
+    const fatal    = errors.filter(m => m.subType === 'fatal')
+    const nonFatal = errors.filter(m => m.subType !== 'fatal')
+
+    return {
+      valid: errors.length === 0,
+      errorCount: errors.length,
+      warningCount: warnings.length,
+      fatalCount: fatal.length,
+      errors: errors.map(m => ({
+        type: m.type,
+        subType: m.subType || '',
+        message: m.message,
+        extract: m.extract || '',
+        lastLine: m.lastLine || null,
+        lastColumn: m.lastColumn || null,
+        firstLine: m.firstLine || null,
+        firstColumn: m.firstColumn || null
+      })),
+      warnings: warnings.map(m => ({
+        type: m.type,
+        subType: m.subType || '',
+        message: m.message,
+        extract: m.extract || '',
+        lastLine: m.lastLine || null,
+        lastColumn: m.lastColumn || null
+      })),
+      checkedAt: new Date().toISOString(),
+      url: pageUrl
+    }
+  } catch (err) {
+    return {
+      valid: null,
+      errorCount: 0,
+      warningCount: 0,
+      fatalCount: 0,
+      errors: [],
+      warnings: [],
+      checkedAt: new Date().toISOString(),
+      url: pageUrl,
+      error: err.message
+    }
+  }
+}
+
 // 단일 페이지 스캔 (배치용 내부 함수)
 async function scanSinglePage(url, options = {}) {
-  const { level = 'wcag2aa', includeScreenshot = true, checkSpelling = true, checkLinks = false } = options
+  const {
+    level = 'wcag2aa',
+    includeScreenshot = true,
+    checkSpelling = true,
+    checkLinks = false,
+    checkW3C = false
+  } = options
   
   let browser
   try {
@@ -794,6 +874,14 @@ async function scanSinglePage(url, options = {}) {
       linkResult = { dead, redirects, live, total, totalRaw: rawLinks.length, checkedAt: new Date().toISOString() }
     }
 
+    // ── W3C Markup Validation ──────────────────────────
+    let w3cResult = { valid: null, errorCount: 0, warningCount: 0, fatalCount: 0, errors: [], warnings: [] }
+    if (checkW3C) {
+      // 렌더링된 HTML 소스 추출 (DOCTYPE 포함)
+      const htmlSource = await page.content()
+      w3cResult = await validateW3C(htmlSource, pageUrl)
+    }
+
     await browser.close()
 
     return {
@@ -809,6 +897,7 @@ async function scanSinglePage(url, options = {}) {
       screenshot: screenshotBase64,
       spelling: spellingResult,
       links: linkResult,
+      w3c: w3cResult,
       status: 'completed'
     }
   } catch (err) {
@@ -826,6 +915,7 @@ async function scanSinglePage(url, options = {}) {
       screenshot: null,
       spelling: { issues: [], totalWords: 0, totalIssues: 0 },
       links: { dead: [], redirects: [], live: 0, total: 0 },
+      w3c: { valid: null, errorCount: 0, warningCount: 0, fatalCount: 0, errors: [], warnings: [] },
       status: 'error',
       error: err.message
     }
@@ -1082,6 +1172,9 @@ app.get('/api/batch/:sessionId/excel', async (req, res) => {
     const totalViol = session.results.reduce((s, r) => s + (r.summary?.violations || 0), 0)
     const totalSpell = session.results.reduce((s, r) => s + (r.spelling?.totalIssues || 0), 0)
     const totalDead = session.results.reduce((s, r) => s + (r.links?.dead?.length || 0), 0)
+    const totalW3cErr = session.results.reduce((s, r) => s + (r.w3c?.errorCount || 0), 0)
+    const totalW3cWarn = session.results.reduce((s, r) => s + (r.w3c?.warningCount || 0), 0)
+    const w3cInvalid = session.results.filter(r => r.w3c?.valid === false).length
     const errored = session.results.filter(r => r.status === 'error').length
 
     const summaryData = [
@@ -1091,11 +1184,19 @@ app.get('/api/batch/:sessionId/excel', async (req, res) => {
       ['검사 대상 URL 수', session.total],
       ['성공', session.completed],
       ['오류', errored],
+      ['─ 접근성 검사 ─', ''],
       ['평균 접근성 점수 (0~100)', avgScore],
       ['총 접근성 위반 건수', totalViol],
-      ['총 오탈자 건수', totalSpell],
-      ['총 데드링크 건수', totalDead],
       ['WCAG 검사 수준', session.options?.level || 'wcag2aa'],
+      ['─ 오탈자 검사 ─', ''],
+      ['총 오탈자 건수', totalSpell],
+      ['─ 링크 검사 ─', ''],
+      ['총 데드링크 건수', totalDead],
+      ['─ W3C 표준 검사 ─', ''],
+      ['W3C 검사 수행 여부', session.results.some(r => r.w3c?.errorCount !== undefined && r.w3c.checkedAt) ? '예' : '미수행'],
+      ['W3C 오류 발생 페이지 수', w3cInvalid],
+      ['W3C 총 오류 건수', totalW3cErr],
+      ['W3C 총 경고 건수', totalW3cWarn],
     ]
     summaryData.forEach(([label, value]) => {
       const row = summaryWs.addRow({ label, value })
@@ -1125,6 +1226,9 @@ app.get('/api/batch/:sessionId/excel', async (req, res) => {
       { header: '리다이렉트 수', key: 'redirects', width: 13 },
       { header: '정상 링크 수', key: 'liveLinks', width: 12 },
       { header: '전체 링크 수', key: 'totalLinks', width: 12 },
+      { header: 'W3C 오류', key: 'w3cErrors', width: 11 },
+      { header: 'W3C 경고', key: 'w3cWarnings', width: 11 },
+      { header: 'W3C 유효성', key: 'w3cValid', width: 12 },
       { header: '검사 상태', key: 'status', width: 10 },
       { header: '검사 일시', key: 'scannedAt', width: 22 },
       { header: '오류 메시지', key: 'errorMsg', width: 40 }
@@ -1144,6 +1248,7 @@ app.get('/api/batch/:sessionId/excel', async (req, res) => {
       const imp = r.summary?.impactCounts || {}
       const sp = r.spelling || {}
       const lk = r.links || {}
+      const w3c = r.w3c || {}
       const score = r.score ?? null
       const isError = r.status === 'error'
 
@@ -1166,6 +1271,9 @@ app.get('/api/batch/:sessionId/excel', async (req, res) => {
         redirects: lk.redirects?.length ?? '',
         liveLinks: lk.live ?? '',
         totalLinks: lk.total ?? '',
+        w3cErrors: w3c.errorCount ?? '',
+        w3cWarnings: w3c.warningCount ?? '',
+        w3cValid: w3c.valid === null ? '' : w3c.valid ? '유효' : '무효',
         status: isError ? '오류' : '완료',
         scannedAt: r.scannedAt ? new Date(r.scannedAt).toLocaleString('ko-KR') : '',
         errorMsg: r.error || ''
@@ -1207,6 +1315,20 @@ app.get('/api/batch/:sessionId/excel', async (req, res) => {
         row.getCell('deadLinks').font = { bold: true, color: { argb: 'FFDC2626' }, size: 10 }
       }
 
+      // W3C 오류 색상
+      if ((w3c.errorCount || 0) > 0) {
+        row.getCell('w3cErrors').font = { bold: true, color: { argb: 'FFDC2626' }, size: 10 }
+      }
+      if ((w3c.warningCount || 0) > 0) {
+        row.getCell('w3cWarnings').font = { bold: true, color: { argb: 'FFD97706' }, size: 10 }
+      }
+      if (w3c.valid === false) {
+        row.getCell('w3cValid').font = { bold: true, color: { argb: 'FFDC2626' }, size: 9 }
+      } else if (w3c.valid === true) {
+        row.getCell('w3cValid').font = { bold: true, color: { argb: 'FF16A34A' }, size: 9 }
+      }
+      row.getCell('w3cValid').alignment = { horizontal: 'center', vertical: 'middle' }
+
       // 상태 색상
       const stCell = row.getCell('status')
       stCell.font = { bold: true, color: { argb: isError ? 'FFDC2626' : 'FF16A34A' }, size: 9 }
@@ -1214,7 +1336,8 @@ app.get('/api/batch/:sessionId/excel', async (req, res) => {
 
       // 숫자 중앙 정렬
       ;['no', 'score', 'violations', 'passes', 'critical', 'serious', 'moderate', 'minor',
-        'spelling', 'words', 'deadLinks', 'redirects', 'liveLinks', 'totalLinks'].forEach(k => {
+        'spelling', 'words', 'deadLinks', 'redirects', 'liveLinks', 'totalLinks',
+        'w3cErrors', 'w3cWarnings'].forEach(k => {
         row.getCell(k).alignment = { horizontal: 'center', vertical: 'middle' }
       })
 
@@ -1374,6 +1497,69 @@ app.get('/api/batch/:sessionId/excel', async (req, res) => {
     linkWs.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: linkWs.columns.length } }
     linkWs.views = [{ state: 'frozen', ySplit: 1 }]
 
+    // ── 시트 5: W3C 위반 상세 ────────────────────────────
+    const w3cWs = wb.addWorksheet('W3C 위반 상세')
+    w3cWs.columns = [
+      { header: 'No.', key: 'no', width: 6 },
+      { header: '페이지 제목', key: 'title', width: 32 },
+      { header: 'URL', key: 'url', width: 48 },
+      { header: '유형', key: 'type', width: 10 },
+      { header: '세부유형', key: 'subType', width: 10 },
+      { header: '오류 메시지', key: 'message', width: 60 },
+      { header: '문제 코드', key: 'extract', width: 50 },
+      { header: '행', key: 'lastLine', width: 8 },
+      { header: '열', key: 'lastColumn', width: 8 }
+    ]
+    w3cWs.getRow(1).eachCell(c => {
+      c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } }
+      c.alignment = { horizontal: 'center', vertical: 'middle' }
+    })
+    w3cWs.getRow(1).height = 22
+
+    let w3cRowIdx = 0
+    session.results.forEach(r => {
+      const w3c = r.w3c
+      if (!w3c || (!w3c.errors?.length && !w3c.warnings?.length)) return
+      const allMsgs = [
+        ...(w3c.errors || []).map(m => ({ ...m, _level: 'error' })),
+        ...(w3c.warnings || []).map(m => ({ ...m, _level: 'warning' }))
+      ]
+      allMsgs.forEach(m => {
+        const row = w3cWs.addRow({
+          no: ++w3cRowIdx,
+          title: r.pageTitle || '',
+          url: r.url || '',
+          type: m._level === 'error' ? '오류' : '경고',
+          subType: m.subType === 'fatal' ? '치명적' : m.subType || '',
+          message: m.message || '',
+          extract: m.extract ? m.extract.substring(0, 200) : '',
+          lastLine: m.lastLine || '',
+          lastColumn: m.lastColumn || ''
+        })
+        const bg = w3cRowIdx % 2 === 0 ? 'FFFFFFFF' : 'FFEFF6FF'
+        row.eachCell(c => {
+          c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bg } }
+          c.font = { size: 9 }
+          c.alignment = { vertical: 'middle', wrapText: false }
+        })
+        const typeCell = row.getCell('type')
+        typeCell.font = {
+          bold: true, size: 9,
+          color: { argb: m._level === 'error' ? 'FFDC2626' : 'FFD97706' }
+        }
+        typeCell.alignment = { horizontal: 'center', vertical: 'middle' }
+        if (m.subType === 'fatal') {
+          row.getCell('subType').font = { bold: true, color: { argb: 'FF7C0000' }, size: 9 }
+        }
+        row.getCell('no').alignment = { horizontal: 'center', vertical: 'middle' }
+        ;['lastLine','lastColumn'].forEach(k => row.getCell(k).alignment = { horizontal: 'center', vertical: 'middle' })
+        row.height = 16
+      })
+    })
+    w3cWs.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: w3cWs.columns.length } }
+    w3cWs.views = [{ state: 'frozen', ySplit: 1 }]
+
     // 엑셀 출력
     const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
     const filename = `minwon-a11y-report-${dateStr}.xlsx`
@@ -1476,6 +1662,7 @@ function generateReportHtml(result) {
       <span class="badge" style="background:rgba(255,255,255,.2)">♿ 접근성 ${(result.level||'wcag2aa').toUpperCase()}</span>
       <span class="badge" style="background:rgba(255,255,255,.2)">✍️ 오탈자 검사</span>
       <span class="badge" style="background:rgba(255,255,255,.2)">🔗 링크 검사</span>
+      ${result.w3c?.checkedAt ? `<span class="badge" style="background:rgba(255,255,255,.2)">🏷️ W3C 표준 검사</span>` : ''}
     </div>
   </div>
 </div>
@@ -1499,6 +1686,25 @@ function generateReportHtml(result) {
         <div style="font-size:11px;color:#64748b">총 ${lk.total||0}개 링크 검사</div>
       </div>
     </div>
+    ${result.w3c?.checkedAt ? `
+    <div style="margin-top:12px;padding:12px 16px;border-radius:8px;background:${(result.w3c?.errorCount||0)>0?'#fef2f2':'#f0fdf4'};border:1px solid ${(result.w3c?.errorCount||0)>0?'#fecaca':'#bbf7d0'}">
+      <div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+        <div style="font-size:11px;font-weight:700;color:#1e293b;min-width:120px">🏷️ W3C 표준 검사</div>
+        <div style="text-align:center;min-width:70px">
+          <div style="font-size:20px;font-weight:800;color:${(result.w3c?.errorCount||0)>0?'#dc2626':'#16a34a'}">${result.w3c?.errorCount||0}</div>
+          <div style="font-size:10px;color:#64748b">오류</div>
+        </div>
+        <div style="text-align:center;min-width:70px">
+          <div style="font-size:20px;font-weight:800;color:${(result.w3c?.warningCount||0)>0?'#d97706':'#16a34a'}">${result.w3c?.warningCount||0}</div>
+          <div style="font-size:10px;color:#64748b">경고</div>
+        </div>
+        <div style="text-align:center;min-width:70px">
+          <span style="font-size:13px;font-weight:700;padding:4px 12px;border-radius:20px;background:${result.w3c?.valid===true?'#dcfce7':result.w3c?.valid===false?'#fee2e2':'#f1f5f9'};color:${result.w3c?.valid===true?'#16a34a':result.w3c?.valid===false?'#dc2626':'#64748b'}">
+            ${result.w3c?.valid===true?'✅ 유효':result.w3c?.valid===false?'❌ 무효':'⚪ 미검사'}
+          </span>
+        </div>
+      </div>
+    </div>` : ''}
   </div>
   <div class="section">
     <h2>♿ 접근성 검사 결과 (${(result.level||'wcag2aa').toUpperCase()})</h2>
@@ -1551,6 +1757,55 @@ function generateReportHtml(result) {
     </div>
     ${deadLinksHtml}
   </div>
+  ${result.w3c?.checkedAt ? `
+  <div class="section">
+    <h2>🏷️ W3C 표준 검사 결과</h2>
+    <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <div style="background:${(result.w3c?.errorCount||0)>0?'#fef2f2':'#f0fdf4'};padding:10px 16px;border-radius:8px;text-align:center;min-width:100px">
+        <div style="font-size:22px;font-weight:800;color:${(result.w3c?.errorCount||0)>0?'#dc2626':'#16a34a'}">${result.w3c?.errorCount||0}</div>
+        <div style="font-size:11px;color:#64748b">오류</div>
+      </div>
+      <div style="background:${(result.w3c?.warningCount||0)>0?'#fffbeb':'#f0fdf4'};padding:10px 16px;border-radius:8px;text-align:center;min-width:100px">
+        <div style="font-size:22px;font-weight:800;color:${(result.w3c?.warningCount||0)>0?'#d97706':'#16a34a'}">${result.w3c?.warningCount||0}</div>
+        <div style="font-size:11px;color:#64748b">경고</div>
+      </div>
+      <div style="background:#f8fafc;padding:10px 16px;border-radius:8px;text-align:center;min-width:100px">
+        <div style="font-size:13px;font-weight:700;padding:4px 8px;border-radius:12px;display:inline-block;background:${result.w3c?.valid===true?'#dcfce7':result.w3c?.valid===false?'#fee2e2':'#e2e8f0'};color:${result.w3c?.valid===true?'#16a34a':result.w3c?.valid===false?'#dc2626':'#64748b'}">
+          ${result.w3c?.valid===true?'✅ 유효':result.w3c?.valid===false?'❌ 무효':'⚪ 미검사'}
+        </div>
+        <div style="font-size:11px;color:#64748b;margin-top:4px">유효성</div>
+      </div>
+      ${result.w3c?.fatalCount>0?`<div style="background:#fef2f2;padding:10px 16px;border-radius:8px;text-align:center;min-width:100px">
+        <div style="font-size:22px;font-weight:800;color:#dc2626">${result.w3c?.fatalCount}</div>
+        <div style="font-size:11px;color:#64748b">치명적 오류</div>
+      </div>`:''}
+    </div>
+    ${result.w3c?.errors?.length > 0 ? `
+    <div style="margin-bottom:12px"><strong style="font-size:13px;color:#dc2626">❌ 오류 목록 (${result.w3c.errors.length}건)</strong></div>
+    ${result.w3c.errors.slice(0,20).map((e,i) => `
+    <div style="border-left:4px solid #ef4444;margin-bottom:10px;padding:10px 14px;background:#fef2f2;border-radius:0 6px 6px 0;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+        <div style="flex:1">
+          <div style="font-size:12px;font-weight:600;color:#1e293b;margin-bottom:4px">${escapeHtml(e.message)}</div>
+          ${e.extract?`<div style="font-family:monospace;font-size:11px;background:#fee2e2;padding:3px 8px;border-radius:4px;color:#7f1d1d;word-break:break-all">${escapeHtml(e.extract)}</div>`:''}
+        </div>
+        ${e.lastLine?`<span style="font-size:10px;color:#94a3b8;white-space:nowrap">L${e.lastLine}${e.lastColumn?':C'+e.lastColumn:''}</span>`:''}
+      </div>
+      ${e.subType==='fatal'?`<span style="background:#dc2626;color:white;font-size:10px;padding:1px 6px;border-radius:4px;margin-top:4px;display:inline-block">치명적</span>`:''}
+    </div>`).join('')}
+    ${result.w3c.errors.length > 20 ? `<div style="text-align:center;color:#94a3b8;font-size:12px;padding:8px">... 외 ${result.w3c.errors.length-20}건 (엑셀 보고서 참조)</div>` : ''}
+    ` : '<div style="text-align:center;padding:20px;color:#22c55e;font-weight:600">✅ W3C 오류가 없습니다.</div>'}
+    ${result.w3c?.warnings?.length > 0 ? `
+    <div style="margin-top:12px;margin-bottom:8px"><strong style="font-size:13px;color:#d97706">⚠️ 경고 목록 (${result.w3c.warnings.length}건)</strong></div>
+    ${result.w3c.warnings.slice(0,10).map((w,i) => `
+    <div style="border-left:4px solid #f59e0b;margin-bottom:8px;padding:8px 12px;background:#fffbeb;border-radius:0 6px 6px 0;">
+      <div style="font-size:12px;color:#1e293b;">${escapeHtml(w.message)}</div>
+      ${w.extract?`<div style="font-family:monospace;font-size:11px;background:#fef3c7;padding:2px 6px;border-radius:3px;color:#78350f;margin-top:3px;word-break:break-all">${escapeHtml(w.extract)}</div>`:''}
+    </div>`).join('')}
+    ${result.w3c.warnings.length > 10 ? `<div style="text-align:center;color:#94a3b8;font-size:12px;padding:4px">... 외 ${result.w3c.warnings.length-10}건</div>` : ''}
+    ` : ''}
+    <div style="font-size:10px;color:#94a3b8;margin-top:8px">검사 기준: W3C Markup Validation Service (validator.w3.org/nu) | 검사 일시: ${result.w3c?.checkedAt ? new Date(result.w3c.checkedAt).toLocaleString('ko-KR') : '-'}</div>
+  </div>` : ''}
   <div class="footer">
     <p>본 보고서는 A11y Inspector 자동 검사 증적입니다. (axe-core + Playwright)</p>
     <p>생성: ${new Date().toLocaleString('ko-KR')}</p>
@@ -1568,11 +1823,20 @@ function generateBatchReportHtml(session) {
   const totalViolations = results.reduce((sum, r) => sum + (r.summary?.violations || 0), 0)
   const totalSpelling = results.reduce((sum, r) => sum + (r.spelling?.totalIssues || 0), 0)
   const totalDeadLinks = results.reduce((sum, r) => sum + (r.links?.dead?.length || 0), 0)
+  const totalW3cErrors = results.reduce((sum, r) => sum + (r.w3c?.errorCount || 0), 0)
+  const w3cInvalidCount = results.filter(r => r.w3c?.valid === false).length
+  const w3cChecked = results.some(r => r.w3c?.checkedAt)
   const errored = results.filter(r => r.status === 'error').length
 
   const rowsHtml = results.map((r, i) => {
     const scoreColor = r.score >= 80 ? '#22c55e' : r.score >= 50 ? '#f59e0b' : '#ef4444'
     const status = r.status === 'error' ? '⛔ 오류' : '✅ 완료'
+    const w3cCell = w3cChecked
+      ? `<td style="padding:10px 12px;text-align:center;font-size:12px;">
+          ${r.w3c?.checkedAt
+            ? `<span style="color:${(r.w3c?.errorCount||0)>0?'#dc2626':'#16a34a'};font-weight:700">${r.w3c?.errorCount||0}</span><span style="color:#94a3b8;font-size:10px">/</span><span style="color:${r.w3c?.valid===false?'#dc2626':r.w3c?.valid===true?'#16a34a':'#64748b'};font-weight:600;font-size:11px">${r.w3c?.valid===true?'유효':r.w3c?.valid===false?'무효':'?'}</span>`
+            : '<span style="color:#94a3b8">-</span>'}</td>`
+      : ''
     return `
     <tr style="border-bottom:1px solid #e2e8f0;${i%2===0?'background:#fff':'background:#f8fafc'}">
       <td style="padding:10px 12px;font-size:12px;color:#64748b">${i+1}</td>
@@ -1586,6 +1850,7 @@ function generateBatchReportHtml(session) {
       <td style="padding:10px 12px;text-align:center;color:#ef4444;font-weight:700">${r.summary?.violations || '-'}</td>
       <td style="padding:10px 12px;text-align:center;color:#7c3aed;font-weight:700">${r.spelling?.totalIssues ?? '-'}</td>
       <td style="padding:10px 12px;text-align:center;color:#dc2626;font-weight:700">${r.links?.dead?.length ?? '-'}</td>
+      ${w3cCell}
       <td style="padding:10px 12px;text-align:center;font-size:12px">${status}</td>
     </tr>`
   }).join('')
@@ -1608,7 +1873,7 @@ function generateBatchReportHtml(session) {
   table{width:100%;border-collapse:collapse}
   th{background:#1e293b;color:white;padding:10px 12px;font-size:12px;text-align:center}
   th:nth-child(2){text-align:left}
-  .kpi-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px}
+  .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:24px}
   .kpi{padding:16px;border-radius:10px;text-align:center}
   .kpi-num{font-size:36px;font-weight:800}
   .kpi-lbl{font-size:11px;margin-top:4px;opacity:.8}
@@ -1650,6 +1915,11 @@ function generateBatchReportHtml(session) {
         <div class="kpi-num">${totalDeadLinks}</div>
         <div class="kpi-lbl">총 데드링크</div>
       </div>
+      ${w3cChecked ? `
+      <div class="kpi" style="background:${w3cInvalidCount>0?'#fef2f2':'#f0fdf4'};color:${w3cInvalidCount>0?'#dc2626':'#16a34a'}">
+        <div class="kpi-num">${totalW3cErrors}</div>
+        <div class="kpi-lbl">W3C 오류 (${w3cInvalidCount}페이지 무효)</div>
+      </div>` : ''}
     </div>
   </div>
   <div class="section">
@@ -1663,6 +1933,7 @@ function generateBatchReportHtml(session) {
           <th style="width:70px">위반</th>
           <th style="width:70px">오탈자</th>
           <th style="width:80px">데드링크</th>
+          ${w3cChecked ? '<th style="width:90px">W3C 오류/유효성</th>' : ''}
           <th style="width:70px">상태</th>
         </tr>
       </thead>

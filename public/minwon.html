@@ -208,7 +208,7 @@
                 </select>
               </div>
 
-              <div class="grid grid-cols-3 gap-2">
+              <div class="grid grid-cols-2 gap-2">
                 <label class="flex items-center gap-2 p-2.5 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-50 transition">
                   <input type="checkbox" id="opt-screenshot" checked class="w-4 h-4 rounded text-blue-600">
                   <div>
@@ -228,6 +228,13 @@
                   <div>
                     <div class="text-xs font-semibold">링크 검사</div>
                     <div class="text-xs text-gray-400">느릴 수 있음</div>
+                  </div>
+                </label>
+                <label class="flex items-center gap-2 p-2.5 border border-blue-200 bg-blue-50 rounded-lg cursor-pointer hover:bg-blue-100 transition">
+                  <input type="checkbox" id="opt-w3c" class="w-4 h-4 rounded text-blue-600">
+                  <div>
+                    <div class="text-xs font-semibold text-blue-700">W3C 표준</div>
+                    <div class="text-xs text-blue-400">마크업 검증</div>
                   </div>
                 </label>
               </div>
@@ -297,7 +304,7 @@
       <div id="results-detail" class="hidden">
 
         <!-- KPI 카드 -->
-        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
+        <div class="grid grid-cols-2 sm:grid-cols-6 gap-3 mb-4">
           <div class="bg-white rounded-xl shadow-sm p-4 text-center">
             <div id="kpi-total" class="text-3xl font-black text-blue-600">-</div>
             <div class="text-xs text-gray-500 mt-1">검사 페이지</div>
@@ -317,6 +324,10 @@
           <div class="bg-white rounded-xl shadow-sm p-4 text-center">
             <div id="kpi-dead" class="text-3xl font-black text-red-600">-</div>
             <div class="text-xs text-gray-500 mt-1">총 데드링크</div>
+          </div>
+          <div class="bg-white rounded-xl shadow-sm p-4 text-center" id="kpi-w3c-card" style="display:none">
+            <div id="kpi-w3c" class="text-3xl font-black text-orange-500">-</div>
+            <div class="text-xs text-gray-500 mt-1">W3C 오류 (무효 페이지)</div>
           </div>
         </div>
 
@@ -348,6 +359,7 @@
                   <th class="px-3 py-3 text-center w-14">위반</th>
                   <th class="px-3 py-3 text-center w-14">오탈자</th>
                   <th class="px-3 py-3 text-center w-16">링크오류</th>
+                  <th class="px-3 py-3 text-center w-20 th-w3c hidden">W3C</th>
                   <th class="px-3 py-3 text-center w-20">상태</th>
                   <th class="px-3 py-3 text-center w-32">증적</th>
                 </tr>
@@ -630,7 +642,8 @@
         level: document.getElementById('scan-level').value,
         includeScreenshot: document.getElementById('opt-screenshot').checked,
         checkSpelling: document.getElementById('opt-spelling').checked,
-        checkLinks: document.getElementById('opt-links').checked
+        checkLinks: document.getElementById('opt-links').checked,
+        checkW3C: document.getElementById('opt-w3c').checked
       }
 
       try {
@@ -730,6 +743,9 @@
         const totalViol = data.results.reduce((s, r) => s + (r.summary?.violations || 0), 0)
         const totalSpell = data.results.reduce((s, r) => s + (r.spelling?.totalIssues || 0), 0)
         const totalDead = data.results.reduce((s, r) => s + (r.links?.dead?.length || 0), 0)
+        const totalW3cErr = data.results.reduce((s, r) => s + (r.w3c?.errorCount || 0), 0)
+        const w3cInvalidCnt = data.results.filter(r => r.w3c?.valid === false).length
+        const w3cChecked = data.results.some(r => r.w3c?.checkedAt)
 
         const scoreColor = avgScore >= 80 ? '#16a34a' : avgScore >= 50 ? '#d97706' : '#dc2626'
 
@@ -739,6 +755,21 @@
         document.getElementById('kpi-violations').textContent = totalViol
         document.getElementById('kpi-spelling').textContent = totalSpell
         document.getElementById('kpi-dead').textContent = totalDead
+
+        // W3C KPI 카드 표시/숨김
+        const w3cCard = document.getElementById('kpi-w3c-card')
+        if (w3cChecked) {
+          w3cCard.style.display = ''
+          document.getElementById('kpi-w3c').textContent = `${totalW3cErr} (${w3cInvalidCnt}건)`
+          document.getElementById('kpi-w3c').style.color = w3cInvalidCnt > 0 ? '#ea580c' : '#16a34a'
+        } else {
+          w3cCard.style.display = 'none'
+        }
+
+        // W3C 테이블 컬럼 헤더 표시/숨김
+        document.querySelectorAll('.th-w3c').forEach(el => {
+          el.classList.toggle('hidden', !w3cChecked)
+        })
 
         // 결과 테이블
         const tbody = document.getElementById('results-tbody')
@@ -782,6 +813,13 @@
                   ${r.links?.dead?.length ?? '-'}
                 </span>
               </td>
+              ${w3cChecked ? `<td class="px-3 py-3 text-center td-w3c">
+                ${r.w3c?.checkedAt
+                  ? `<div class="text-xs font-bold ${(r.w3c?.errorCount||0)>0?'text-red-600':'text-green-600'}">${r.w3c?.errorCount||0}건</div>
+                     <div class="text-xs ${r.w3c?.valid===false?'text-red-500':r.w3c?.valid===true?'text-green-600':'text-gray-400'}">${r.w3c?.valid===true?'유효':r.w3c?.valid===false?'무효':'-'}</div>`
+                  : '<span class="text-xs text-gray-300">-</span>'
+                }
+              </td>` : ''}
               <td class="px-3 py-3 text-center">${status}</td>
               <td class="px-3 py-3 text-center">
                 <div class="flex gap-1 justify-center">
@@ -852,7 +890,8 @@
         level: document.getElementById('scan-level').value,
         includeScreenshot: document.getElementById('opt-screenshot').checked,
         checkSpelling: document.getElementById('opt-spelling').checked,
-        checkLinks: document.getElementById('opt-links').checked
+        checkLinks: document.getElementById('opt-links').checked,
+        checkW3C: document.getElementById('opt-w3c').checked
       }
 
       const queryInput = document.getElementById('search-query')

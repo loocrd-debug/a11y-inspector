@@ -17,12 +17,15 @@ app.use(cors())
 app.use(express.json({ limit: '10mb' }))
 app.use(express.static(join(__dirname, 'public')))
 
+// axe-core 소스 서버 시작 시 1회만 로드 (캐싱 → 매 스캔 I/O 제거)
+const AXE_SOURCE = readFileSync(join(__dirname, 'node_modules/axe-core/axe.min.js'), 'utf8')
+
 // ─────────────────────────────────────────────────────
 // 브라우저 풀 (배치 스캔에서 매번 launch/close 하지 않고 재사용)
 // ─────────────────────────────────────────────────────
-const BROWSER_POOL_SIZE = 3       // 동시 유지 브라우저 수
-const BATCH_CONCURRENCY = 3       // 배치 동시 처리 수
-const BROWSER_MAX_USES  = 30      // 재사용 횟수 초과 시 교체 (메모리 누수 방지)
+const BROWSER_POOL_SIZE = 5       // 동시 유지 브라우저 수 (3→5 속도↑)
+const BATCH_CONCURRENCY = 5       // 배치 동시 처리 수 (3→5 속도↑)
+const BROWSER_MAX_USES  = 50      // 재사용 횟수 초과 시 교체 (메모리 누수 방지)
 
 class BrowserPool {
   constructor(size = BROWSER_POOL_SIZE) {
@@ -33,8 +36,16 @@ class BrowserPool {
 
   async _launch() {
     const browser = await chromium.launch({
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
-             '--disable-gpu', '--disable-extensions', '--disable-background-networking']
+      args: [
+        '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
+        '--disable-gpu', '--disable-extensions', '--disable-background-networking',
+        '--disable-default-apps', '--disable-sync', '--disable-translate',
+        '--hide-scrollbars', '--metrics-recording-only', '--mute-audio',
+        '--no-first-run', '--safebrowsing-disable-auto-update',
+        '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
+        '--disable-backgrounding-occluded-windows',
+        '--js-flags=--max-old-space-size=256'   // JS 힙 제한 → 메모리 절약
+      ]
     })
     return { browser, uses: 0, busy: false }
   }
@@ -262,18 +273,18 @@ async function checkDaumSpelling(textChunks, pageUrl, browser) {
 
 // ─── 데드링크 검사 ────────────────────────────────────
 async function checkDeadLinks(links, baseUrl, page) {
-  // 동일 도메인 우선, 외부 링크는 최대 30개로 제한
+  // 동일 도메인 우선, 외부 링크는 최대 15개로 제한 (속도 최적화)
   const baseDomain = new URL(baseUrl).hostname
-  const internalLinks = links.filter(l => { try { return new URL(l).hostname === baseDomain } catch { return false } })
-  const externalLinks = links.filter(l => { try { return new URL(l).hostname !== baseDomain } catch { return false } }).slice(0, 30)
-  const allLinks = [...new Set([...internalLinks, ...externalLinks])].slice(0, 60)
+  const internalLinks = links.filter(l => { try { return new URL(l).hostname === baseDomain } catch { return false } }).slice(0, 30)
+  const externalLinks = links.filter(l => { try { return new URL(l).hostname !== baseDomain } catch { return false } }).slice(0, 15)
+  const allLinks = [...new Set([...internalLinks, ...externalLinks])].slice(0, 45)
 
   // 단일 링크 HEAD→GET 검사
   async function checkOne(link) {
     let status = null, ok = false, redirectUrl = null, error = null
     try {
       const ctrl = new AbortController()
-      const timer = setTimeout(() => ctrl.abort(), 7000)
+      const timer = setTimeout(() => ctrl.abort(), 4000)   // 7초→4초 단축
       const resp = await fetch(link, {
         method: 'HEAD', redirect: 'follow', signal: ctrl.signal,
         headers: { 'User-Agent': 'Mozilla/5.0 (A11y-Inspector/1.0)' }
@@ -284,8 +295,8 @@ async function checkDeadLinks(links, baseUrl, page) {
       if (resp.url !== link) redirectUrl = resp.url
       if (resp.status === 405) {
         const ctrl2 = new AbortController()
-        const timer2 = setTimeout(() => ctrl2.abort(), 7000)
-        const resp2 = await fetch(link, { method: 'GET', redirect: 'follow', signal: ctrl2.signal, headers: { 'User-Agent': 'Mozilla/5.0 (A11y-Inspector/1.0)' } })
+        const timer2 = setTimeout(() => ctrl2.abort(), 4000)   // 7초→4초 단축
+        const resp2 = await fetch(link, { method: 'GET', redirect: 'follow', signal: ctrl2.signal, headers: { 'User-Agent': 'Mozilla/5.0 (종합검사/2.0)' } })
         clearTimeout(timer2)
         status = resp2.status; ok = resp2.ok
       }
@@ -296,8 +307,8 @@ async function checkDeadLinks(links, baseUrl, page) {
     return { url: link, status, error, redirectUrl, ok }
   }
 
-  // 병렬 처리 (최대 10개 동시)
-  const CONCUR = 10
+  // 병렬 처리 (최대 15개 동시, 10→15)
+  const CONCUR = 15
   const results = []
   for (let i = 0; i < allLinks.length; i += CONCUR) {
     const batch = allLinks.slice(i, i + CONCUR)
@@ -335,23 +346,38 @@ app.post('/api/scan', async (req, res) => {
   let browser
   try {
     browser = await chromium.launch({
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu', '--disable-extensions']
+      args: [
+        '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
+        '--disable-extensions', '--disable-default-apps', '--disable-sync', '--disable-translate',
+        '--mute-audio', '--no-first-run', '--disable-background-networking',
+        '--disable-background-timer-throttling', '--disable-renderer-backgrounding'
+      ]
     })
     const page = await browser.newPage()
     await page.setViewportSize({ width: 1280, height: 900 })
 
-    // 이미지·폰트·미디어 차단 → 로드 속도 향상
+    // 불필요 리소스 차단 → 로드 속도 대폭 향상
     if (!includeScreenshot) {
-      await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3,pdf}', r => r.abort())
+      await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3,pdf,flv,avi,mov}', r => r.abort())
+      await page.route('**/{gtag,analytics,ga,fbq,hotjar,clarity,matomo}*', r => r.abort())
     } else {
-      await page.route('**/*.{woff,woff2,ttf,eot,mp4,mp3,pdf}', r => r.abort())
+      await page.route('**/*.{woff,woff2,ttf,eot,mp4,mp3,pdf,flv,avi,mov}', r => r.abort())
     }
+    // 광고/트래킹 도메인 차단 (공통)
+    await page.route('**/{doubleclick,googlesyndication,adservice,adsystem,moatads,scorecardresearch}**', r => r.abort())
 
-    await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 30000 })
-    await page.waitForTimeout(500)
+    await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 20000 })
+    // waitForTimeout 제거 → 즉시 처리 (domcontentloaded 후 충분)
 
-    const pageTitle = await page.title()
-    const pageUrl = page.url()
+    // 타이틀/URL 안전 취득 (리다이렉션·context 파괴 대응)
+    let pageTitle = ''
+    let pageUrl = normalizedUrl
+    try {
+      pageTitle = await page.title()
+      pageUrl = page.url()
+    } catch (e) {
+      pageUrl = normalizedUrl
+    }
 
     // ── 스크린샷 ──────────────────────────────────────
     let screenshotBase64 = null
@@ -361,8 +387,8 @@ app.post('/api/scan', async (req, res) => {
     }
 
     // ── 접근성 검사 (axe-core) ────────────────────────
-    const axeSource = readFileSync(join(__dirname, 'node_modules/axe-core/axe.min.js'), 'utf8')
-    await page.addScriptTag({ content: axeSource })
+    // axeSource는 AXE_SOURCE 캐시 사용
+    await page.addScriptTag({ content: AXE_SOURCE })
     const axeResults = await page.evaluate(async (runLevel) => {
       return await window.axe.run(document, {
         runOnly: {
@@ -841,7 +867,7 @@ app.post('/api/report', (req, res) => {
   </div>` : ''}
 
   <div class="footer">
-    <p>본 보고서는 A11y Inspector 자동 검사 결과입니다. (axe-core + Playwright)</p>
+    <p>본 보고서는 우주최고 종합검사 자동 검사 결과입니다. (axe-core + Playwright)</p>
     <p>자동 검사는 전체 이슈의 일부만 탐지할 수 있으며, 전문가 수동 검토를 병행하시기 바랍니다.</p>
     <p style="margin-top:6px;color:#cbd5e1">생성: ${new Date().toLocaleString('ko-KR')}</p>
   </div>
@@ -872,8 +898,11 @@ app.get('/api/minwon/list', async (req, res) => {
   const startCount = (parseInt(page) - 1) * ps
 
   try {
+    const abortCtrl = new AbortController()
+    const fetchTimer = setTimeout(() => abortCtrl.abort(), 10000)  // 10초 타임아웃
     const response = await fetch('https://plus.gov.kr/api/iwcas/guide/v1.0/search/mergeResult', {
       method: 'POST',
+      signal: abortCtrl.signal,
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
@@ -889,10 +918,11 @@ app.get('/api/minwon/list', async (req, res) => {
         docId: ''
       })
     })
+    clearTimeout(fetchTimer)
 
     const data = await response.json()
     const mergeResult = data.searchMergeResult?.MERGE_COLLECTION || []
-    const totalCount = data.totalCount || 0
+    const totalCount = data.totalCount || data.searchMergeResult?.TOTAL_COUNT || 0
 
     // GOV24_URL 기준으로 www.gov.kr/mw URL 생성, 로그인 없이 접근 가능한 민원안내 페이지만 포함
     // GOV24_URL 예시: /mw/AA020InfoCappView.do?&CappBizCD=13100000026&tp_seq=01
@@ -1608,16 +1638,27 @@ async function scanSinglePage(url, options = {}) {
 
     // 이미지·폰트·미디어 차단 → 로드 속도 향상 (스크린샷 필요 시 이미지는 허용)
     if (!includeScreenshot) {
-      await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3,pdf}', r => r.abort())
+      await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3,pdf,flv,avi,mov}', r => r.abort())
+      await page.route('**/{gtag,analytics,ga,fbq,hotjar,clarity,matomo}*', r => r.abort())
     } else {
-      await page.route('**/*.{woff,woff2,ttf,eot,mp4,mp3,pdf}', r => r.abort())
+      await page.route('**/*.{woff,woff2,ttf,eot,mp4,mp3,pdf,flv,avi,mov}', r => r.abort())
     }
+    // 광고/트래킹 도메인 차단 (공통)
+    await page.route('**/{doubleclick,googlesyndication,adservice,adsystem,moatads,scorecardresearch}**', r => r.abort())
 
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
-    await page.waitForTimeout(500)
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 })
+    // waitForTimeout 제거 → 즉시 처리 (domcontentloaded 후 충분)
 
-    const pageTitle = await page.title()
-    const pageUrl = page.url()
+    // 페이지 타이틀 안전하게 취득 (리다이렉션 후에도 유효)
+    let pageTitle = ''
+    let pageUrl = url
+    try {
+      pageTitle = await page.title()
+      pageUrl = page.url()
+    } catch (e) {
+      // 리다이렉션으로 context 파괴된 경우 URL만 유지
+      pageUrl = url
+    }
 
     // 스크린샷
     let screenshotBase64 = null
@@ -1627,8 +1668,8 @@ async function scanSinglePage(url, options = {}) {
     }
 
     // 접근성 검사
-    const axeSource = readFileSync(join(__dirname, 'node_modules/axe-core/axe.min.js'), 'utf8')
-    await page.addScriptTag({ content: axeSource })
+    // axeSource는 AXE_SOURCE 캐시 사용
+    await page.addScriptTag({ content: AXE_SOURCE })
     const axeResults = await page.evaluate(async (runLevel) => {
       return await window.axe.run(document, {
         runOnly: {
@@ -1876,6 +1917,13 @@ async function scanSinglePage(url, options = {}) {
   } catch (err) {
     if (page) await page.close().catch(() => {})
     if (poolSlot) await browserPool.release(poolSlot).catch(() => {})
+    // 연결 오류 메시지 친절하게 변환
+    let errMsg = err.message
+    if (errMsg.includes('ERR_CONNECTION_RESET'))  errMsg = '페이지 연결이 끊어졌습니다 (서버가 연결을 재설정했습니다)'
+    else if (errMsg.includes('ERR_CONNECTION_REFUSED')) errMsg = '서버가 연결을 거부했습니다 (사이트가 다운되었을 수 있습니다)'
+    else if (errMsg.includes('ERR_NAME_NOT_RESOLVED')) errMsg = 'DNS 조회 실패 (URL을 확인해주세요)'
+    else if (errMsg.includes('Timeout') || errMsg.includes('timeout')) errMsg = '페이지 로딩 시간 초과 (20초) — 사이트가 느리거나 응답하지 않습니다'
+    else if (errMsg.includes('Execution context was destroyed')) errMsg = '페이지 이동 중 컨텍스트가 변경되었습니다 (리다이렉션 발생)'
     return {
       id: Date.now().toString() + Math.random().toString(36).slice(2),
       scannedAt: new Date().toISOString(),
@@ -1892,7 +1940,7 @@ async function scanSinglePage(url, options = {}) {
       w3c: { valid: null, errorCount: 0, warningCount: 0, fatalCount: 0, errors: [], warnings: [] },
       krds: null,
       status: 'error',
-      error: err.message
+      error: errMsg
     }
   }
 }
@@ -2142,7 +2190,7 @@ app.get('/api/batch/:sessionId/excel', async (req, res) => {
 
   try {
     const wb = new ExcelJS.Workbook()
-    wb.creator = 'A11y Inspector'
+    wb.creator = '우주최고 종합검사'
     wb.created = new Date()
 
     // ── 시트 1: 종합 현황 ─────────────────────────────
@@ -2810,7 +2858,7 @@ function generateReportHtml(result) {
     <div style="font-size:10px;color:#94a3b8;margin-top:8px">검사 기준: W3C Markup Validation Service (validator.w3.org/nu) | 검사 일시: ${result.w3c?.checkedAt ? new Date(result.w3c.checkedAt).toLocaleString('ko-KR') : '-'}</div>
   </div>` : ''}
   <div class="footer">
-    <p>본 보고서는 A11y Inspector 자동 검사 증적입니다. (axe-core + Playwright)</p>
+    <p>본 보고서는 우주최고 종합검사 자동 검사 증적입니다. (axe-core + Playwright)</p>
     <p>생성: ${new Date().toLocaleString('ko-KR')}</p>
   </div>
 </div>
@@ -2944,7 +2992,7 @@ function generateBatchReportHtml(session) {
     </table>
   </div>
   <div class="footer">
-    <p>본 보고서는 A11y Inspector 배치 자동 검사 증적입니다. (axe-core + Playwright)</p>
+    <p>본 보고서는 우주최고 종합검사 배치 자동 검사 증적입니다. (axe-core + Playwright)</p>
     <p>생성: ${new Date().toLocaleString('ko-KR')}</p>
   </div>
 </div>
@@ -2955,5 +3003,5 @@ function generateBatchReportHtml(session) {
 // ─── 서버 시작 ───────────────────────────────────────
 const PORT = 3000
 createServer(app).listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ A11y Inspector 서버 실행 중: http://0.0.0.0:${PORT}`)
+  console.log(`✅ 우주최고 종합검사 서버 실행 중: http://0.0.0.0:${PORT}`)
 })

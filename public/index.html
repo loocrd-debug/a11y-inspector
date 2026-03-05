@@ -14,16 +14,15 @@
     .card { background: white; border-radius: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 16px rgba(0,0,0,0.05); }
     .spinner { animation: spin 1s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg); } }
-    .progress-bar { transition: width 0.4s ease-in-out; }
-    .fade-in { animation: fadeIn 0.4s ease-in-out; }
-    @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:translateY(0); } }
+    .fade-in { animation: fadeIn 0.35s ease-in-out; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
     .main-tab-btn { transition: all 0.2s; border-bottom: 3px solid transparent; }
     .main-tab-btn.active { border-bottom-color: #2563eb; color: #2563eb; font-weight: 700; }
-    .sub-tab-btn.active { background: #2563eb; color: white; }
-    .sub-tab-btn { transition: all 0.2s; }
+    .input-tab-btn { transition: all 0.2s; }
+    .input-tab-btn.active { background:#2563eb; color:white; }
     .node-html { font-family: 'Fira Code', 'Courier New', monospace; font-size: 11px; }
     .score-ring { transform: rotate(-90deg); transform-origin: center; transition: stroke-dashoffset 1s ease-in-out; }
-    input:focus, select:focus { outline: none; box-shadow: 0 0 0 3px rgba(37,99,235,0.2); }
+    input:focus, select:focus, textarea:focus { outline: none; box-shadow: 0 0 0 3px rgba(37,99,235,0.18); }
     .impact-critical { border-left-color: #dc2626 !important; }
     .impact-serious  { border-left-color: #ea580c !important; }
     .impact-moderate { border-left-color: #d97706 !important; }
@@ -35,67 +34,172 @@
     .link-dead { border-left-color: #ef4444 !important; }
     .link-redirect { border-left-color: #f59e0b !important; }
     .spell-ko { border-left-color: #8b5cf6 !important; }
-    .spell-en { border-left-color: #0891b2 !important; }
     .badge-pill { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:999px; font-size:11px; font-weight:600; }
+    /* 옵션 카드 */
+    .opt-card { border:2px solid #e2e8f0; border-radius:12px; padding:12px 16px; transition:border-color 0.2s, background 0.2s; cursor:pointer; }
+    .opt-card:hover { border-color:#93c5fd; background:#f0f7ff; }
+    .opt-card.active { border-color:#2563eb; background:#eff6ff; }
+    /* 드롭존 */
+    .dropzone { border:2.5px dashed #cbd5e1; border-radius:14px; transition:all 0.2s; }
+    .dropzone.over { border-color:#2563eb; background:#eff6ff; }
+    /* URL 리스트 */
+    .url-tag { display:inline-flex; align-items:center; gap:6px; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:8px; padding:4px 10px; font-size:12px; }
+    /* 진행바 애니메이션 */
+    .progress-bar { transition: width 0.5s ease-in-out; }
+    /* 배치 결과 행 */
+    .batch-row:hover { background:#f8fafc; }
+    .batch-row.error-row { background:#fff5f5; }
   </style>
 </head>
 <body class="bg-slate-50 min-h-screen">
 
 <!-- ═══ HEADER ═══ -->
-<header class="gradient-bg text-white py-7 px-4 shadow-lg">
-  <div class="max-w-5xl mx-auto">
-    <div class="flex items-center gap-3 mb-2">
-      <span class="text-4xl">🔍</span>
-      <div>
-        <h1 class="text-3xl font-extrabold tracking-tight">우주최고 종합검사</h1>
-        <p class="text-blue-200 text-sm mt-0.5">접근성 · 오탈자 · 데드링크 종합 검사 & 증적자료 생성</p>
+<header class="gradient-bg text-white py-6 px-4 shadow-lg">
+  <div class="max-w-6xl mx-auto">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <span class="text-4xl">🔍</span>
+        <div>
+          <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight">우주최고 종합검사</h1>
+          <p class="text-blue-200 text-xs sm:text-sm mt-0.5">WCAG 접근성 · 오탈자 · 링크 · W3C · KRDS 종합 품질검사 도구</p>
+        </div>
       </div>
-    </div>
-    <div class="flex flex-wrap gap-3 mt-4 text-xs text-blue-200">
-      <span><i class="fas fa-universal-access mr-1 text-green-300"></i>WCAG 2.1 접근성</span>
-      <span><i class="fas fa-spell-check mr-1 text-purple-300"></i>한글 오탈자</span>
-      <span><i class="fas fa-link mr-1 text-yellow-300"></i>데드링크 검사</span>
-      <span><i class="fas fa-code mr-1 text-blue-300"></i>W3C 표준검사</span>
-      <span><i class="fas fa-camera mr-1 text-pink-300"></i>스크린샷 증적</span>
-      <span><i class="fas fa-flag mr-1 text-purple-300"></i>KRDS 준수 검사</span>
-      <span><i class="fas fa-file-download mr-1 text-orange-300"></i>HTML 보고서</span>
-      <a href="/minwon.html" class="ml-auto flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white px-3 py-1.5 rounded-lg font-semibold transition border border-white/20">
-        <i class="fas fa-building-columns text-yellow-300"></i>
-        정부24 민원안내 일괄 검사
+      <a href="/minwon.html" class="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white px-3 py-2 rounded-lg font-semibold transition border border-white/20 text-sm">
+        <i class="fas fa-building-columns text-yellow-300 text-xs"></i>
+        <span class="hidden sm:inline">민원안내 일괄검사</span>
         <i class="fas fa-arrow-right text-xs opacity-70"></i>
       </a>
+    </div>
+    <div class="flex flex-wrap gap-x-4 gap-y-1 mt-3 text-xs text-blue-200">
+      <span><i class="fas fa-universal-access mr-1 text-green-300"></i>WCAG 2.1 (기본)</span>
+      <span><i class="fas fa-spell-check mr-1 text-purple-300"></i>오탈자 (옵션)</span>
+      <span><i class="fas fa-link mr-1 text-yellow-300"></i>링크검사 (옵션)</span>
+      <span><i class="fas fa-code mr-1 text-blue-300"></i>W3C 마크업 (옵션)</span>
+      <span><i class="fas fa-flag mr-1 text-pink-300"></i>KRDS (옵션)</span>
+      <span><i class="fas fa-folder-open mr-1 text-orange-300"></i>로컬 파일/폴더 검사</span>
     </div>
   </div>
 </header>
 
 <!-- ═══ MAIN ═══ -->
-<main class="max-w-5xl mx-auto px-4 py-8">
+<main class="max-w-6xl mx-auto px-4 py-6">
 
   <!-- ─── 검사 폼 ─── -->
-  <div class="card p-8 mb-6">
-    <h2 class="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-      <i class="fas fa-search text-blue-500"></i> 검사 설정
-    </h2>
-    <div class="space-y-4">
-      <div>
-        <label class="block text-sm font-semibold text-slate-700 mb-2">
-          <i class="fas fa-globe mr-1 text-slate-400"></i> 검사할 웹사이트 URL
+  <div class="card p-6 mb-5">
+
+    <!-- 입력 소스 탭 -->
+    <div class="flex gap-2 mb-5 border-b border-slate-100 pb-4">
+      <button id="tab-url-btn" onclick="switchInputTab('url')"
+        class="input-tab-btn active flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border border-transparent">
+        <i class="fas fa-globe"></i> URL 입력
+      </button>
+      <button id="tab-multi-btn" onclick="switchInputTab('multi')"
+        class="input-tab-btn flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600">
+        <i class="fas fa-list"></i> URL 다중입력
+      </button>
+      <button id="tab-file-btn" onclick="switchInputTab('file')"
+        class="input-tab-btn flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600">
+        <i class="fas fa-file-code"></i> 로컬 파일
+      </button>
+      <button id="tab-folder-btn" onclick="switchInputTab('folder')"
+        class="input-tab-btn flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border border-slate-200 text-slate-600">
+        <i class="fas fa-folder-open"></i> 폴더 업로드
+      </button>
+    </div>
+
+    <!-- URL 단일 입력 -->
+    <div id="panel-url" class="mb-4">
+      <label class="block text-sm font-semibold text-slate-700 mb-2">
+        <i class="fas fa-globe mr-1 text-blue-400"></i> 검사할 URL
+      </label>
+      <input id="urlInput" type="url" placeholder="https://example.com"
+        class="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 bg-slate-50 focus:bg-white transition text-base"
+        onkeydown="if(event.key==='Enter') startScan()" />
+    </div>
+
+    <!-- URL 다중 입력 -->
+    <div id="panel-multi" class="mb-4 hidden">
+      <label class="block text-sm font-semibold text-slate-700 mb-2">
+        <i class="fas fa-list mr-1 text-blue-400"></i> URL 목록 (한 줄에 하나씩, 최대 100,000개)
+      </label>
+      <textarea id="multiUrls" rows="6" placeholder="https://example.com/page1&#10;https://example.com/page2&#10;https://example.com/page3"
+        class="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 bg-slate-50 focus:bg-white transition text-sm font-mono resize-y"></textarea>
+      <div class="flex items-center gap-3 mt-2 text-xs text-slate-500">
+        <span id="multiUrlCount" class="text-blue-600 font-semibold">0개 URL</span>
+        <button onclick="clearMultiUrls()" class="text-red-400 hover:text-red-600 transition"><i class="fas fa-times mr-1"></i>초기화</button>
+        <label class="cursor-pointer text-blue-500 hover:text-blue-700 transition">
+          <i class="fas fa-file-import mr-1"></i>텍스트 파일 불러오기
+          <input type="file" accept=".txt,.csv" class="hidden" onchange="loadUrlFile(this)" />
         </label>
-        <input id="urlInput" type="url" placeholder="https://example.com"
-          class="w-full border border-slate-200 rounded-xl px-4 py-3 text-slate-800 bg-slate-50 focus:bg-white transition-colors text-base" />
       </div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
-        <div>
-          <label class="block text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide">WCAG 레벨</label>
-          <select id="levelSelect" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 focus:bg-white transition-colors">
-            <option value="wcag2a">Level A (기본)</option>
+    </div>
+
+    <!-- 로컬 파일 입력 -->
+    <div id="panel-file" class="mb-4 hidden">
+      <label class="block text-sm font-semibold text-slate-700 mb-2">
+        <i class="fas fa-file-code mr-1 text-orange-400"></i> HTML/JSP 파일 선택 (다중 선택 가능)
+      </label>
+      <div id="fileDropzone" class="dropzone p-8 text-center cursor-pointer"
+        onclick="document.getElementById('fileInput').click()"
+        ondragover="event.preventDefault(); this.classList.add('over')"
+        ondragleave="this.classList.remove('over')"
+        ondrop="handleFileDrop(event)">
+        <i class="fas fa-cloud-upload-alt text-3xl text-slate-400 mb-3 block"></i>
+        <p class="text-slate-600 font-semibold mb-1">파일을 여기에 드래그하거나 클릭하여 선택</p>
+        <p class="text-slate-400 text-xs">지원 형식: .html .htm .jsp .asp .php (최대 500개)</p>
+        <input type="file" id="fileInput" multiple accept=".html,.htm,.jsp,.asp,.php" class="hidden" onchange="handleFileSelect(this)" />
+      </div>
+      <div id="fileList" class="mt-3 flex flex-wrap gap-2 max-h-32 overflow-y-auto"></div>
+    </div>
+
+    <!-- 폴더 업로드 -->
+    <div id="panel-folder" class="mb-4 hidden">
+      <label class="block text-sm font-semibold text-slate-700 mb-2">
+        <i class="fas fa-folder-open mr-1 text-yellow-500"></i> 폴더 업로드 (폴더 내 HTML/JSP 파일 전체 검사)
+      </label>
+      <div id="folderDropzone" class="dropzone p-8 text-center cursor-pointer"
+        onclick="document.getElementById('folderInput').click()"
+        ondragover="event.preventDefault(); this.classList.add('over')"
+        ondragleave="this.classList.remove('over')"
+        ondrop="handleFolderDrop(event)">
+        <i class="fas fa-folder-open text-3xl text-yellow-400 mb-3 block"></i>
+        <p class="text-slate-600 font-semibold mb-1">폴더를 여기에 드래그하거나 클릭하여 선택</p>
+        <p class="text-slate-400 text-xs">폴더 내 .html .htm .jsp .asp .php 파일을 재귀적으로 검사합니다</p>
+        <input type="file" id="folderInput" webkitdirectory multiple class="hidden" onchange="handleFolderSelect(this)" />
+      </div>
+      <div id="folderInfo" class="mt-2 text-xs text-slate-500 hidden">
+        <i class="fas fa-folder text-yellow-500 mr-1"></i>
+        <span id="folderFileCount">0</span>개 파일 인식됨
+      </div>
+    </div>
+
+    <!-- ─── 검사 옵션 (WCAG는 항상 기본, 나머지 옵션) ─── -->
+    <div class="border border-slate-100 rounded-xl p-4 bg-slate-50/50 mb-4">
+      <div class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">
+        <i class="fas fa-sliders-h mr-1"></i> 검사 옵션
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+
+        <!-- WCAG 레벨 (항상 활성) -->
+        <div class="col-span-2 sm:col-span-1">
+          <label class="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+            <i class="fas fa-universal-access text-green-500"></i>
+            <span>WCAG 레벨</span>
+            <span class="ml-auto text-green-600 text-xs font-bold">기본</span>
+          </label>
+          <select id="levelSelect" class="w-full border border-green-200 rounded-lg px-3 py-2 text-sm bg-green-50 text-slate-800 focus:bg-white">
+            <option value="wcag2a">Level A</option>
             <option value="wcag2aa" selected>Level AA (권장)</option>
-            <option value="wcag2aaa">Level AAA (최고)</option>
+            <option value="wcag2aaa">Level AAA</option>
           </select>
         </div>
+
+        <!-- 스크린샷 -->
         <div>
-          <label class="block text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide">스크린샷</label>
-          <div class="flex gap-3 items-center h-10">
+          <label class="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+            <i class="fas fa-camera text-pink-500"></i> 스크린샷
+          </label>
+          <div class="flex gap-3 items-center h-9">
             <label class="flex items-center gap-1.5 cursor-pointer text-sm">
               <input type="radio" name="screenshot" value="true" checked class="accent-blue-600" /> 포함
             </label>
@@ -104,1104 +208,1280 @@
             </label>
           </div>
         </div>
+
+        <!-- 오탈자 옵션 -->
         <div>
-          <label class="block text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide">오탈자 검사</label>
-          <div class="flex gap-3 items-center h-10">
-            <label class="flex items-center gap-1.5 cursor-pointer text-sm">
-              <input type="checkbox" id="chkSpell" checked class="w-4 h-4 accent-purple-600" /> 활성화
-            </label>
-          </div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+            <i class="fas fa-spell-check text-purple-500"></i> 오탈자 검사
+          </label>
+          <label class="opt-card flex items-center gap-2 text-sm select-none" onclick="toggleOptCard(this,'chkSpell')">
+            <input type="checkbox" id="chkSpell" class="accent-purple-600 pointer-events-none" />
+            <span>활성화</span>
+          </label>
         </div>
+
+        <!-- 링크검사 옵션 -->
         <div>
-          <label class="block text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide">링크 검사</label>
-          <div class="flex flex-col gap-1.5">
-            <label class="flex items-center gap-1.5 cursor-pointer text-sm h-7">
-              <input type="checkbox" id="chkLinks" checked class="w-4 h-4 accent-amber-600" /> 활성화
+          <label class="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+            <i class="fas fa-link text-amber-500"></i> 링크 검사
+          </label>
+          <div class="space-y-1.5">
+            <label class="opt-card flex items-center gap-2 text-sm select-none" onclick="toggleOptCard(this,'chkLinks')">
+              <input type="checkbox" id="chkLinks" class="accent-amber-600 pointer-events-none" />
+              <span>활성화</span>
             </label>
-            <label class="flex items-center gap-1.5 cursor-pointer text-xs text-slate-500 h-6" id="w3cLinksWrap">
+            <label class="flex items-center gap-1.5 cursor-pointer text-xs text-slate-500 pl-1" id="w3cLinksWrap">
               <input type="checkbox" id="chkW3CLinks" class="w-3.5 h-3.5 accent-teal-600" />
-              <span><i class="fas fa-globe text-teal-500 mr-0.5"></i>W3C Link Checker 사용</span>
+              <span class="text-teal-700">W3C Link Checker</span>
             </label>
           </div>
         </div>
+
+        <!-- W3C 마크업 옵션 -->
         <div>
-          <label class="block text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide flex items-center gap-1">
-            <span>W3C 표준검사</span>
-            <span class="text-blue-500 text-xs normal-case font-normal">(마크업)</span>
+          <label class="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+            <i class="fas fa-code text-blue-500"></i> W3C 마크업
           </label>
-          <div class="flex gap-3 items-center h-10">
-            <label class="flex items-center gap-1.5 cursor-pointer text-sm">
-              <input type="checkbox" id="chkW3C" class="w-4 h-4 accent-blue-600" /> 활성화
-            </label>
-          </div>
+          <label class="opt-card flex items-center gap-2 text-sm select-none" onclick="toggleOptCard(this,'chkW3C')">
+            <input type="checkbox" id="chkW3C" class="accent-blue-600 pointer-events-none" />
+            <span>활성화</span>
+          </label>
         </div>
+
+        <!-- KRDS 옵션 -->
         <div>
-          <label class="block text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide flex items-center gap-1">
-            <i class="fas fa-flag text-purple-500 mr-0.5"></i>
-            <span>KRDS 검사</span>
+          <label class="block text-xs font-semibold text-slate-600 mb-1.5 flex items-center gap-1">
+            <i class="fas fa-flag text-rose-500"></i> KRDS 검사
           </label>
-          <div class="flex gap-3 items-center h-10">
-            <label class="flex items-center gap-1.5 cursor-pointer text-sm">
-              <input type="checkbox" id="chkKRDS" class="w-4 h-4 accent-purple-600" /> 활성화
-            </label>
-          </div>
+          <label class="opt-card flex items-center gap-2 text-sm select-none" onclick="toggleOptCard(this,'chkKRDS')">
+            <input type="checkbox" id="chkKRDS" class="accent-rose-600 pointer-events-none" />
+            <span>활성화</span>
+          </label>
         </div>
+
       </div>
-      <button id="scanBtn" onclick="startScan()"
-        class="w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold py-4 rounded-xl text-base transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2">
-        <i class="fas fa-play"></i> 종합 검사 시작
-      </button>
     </div>
+
+    <!-- 실행 버튼 -->
+    <button id="scanBtn" onclick="startScan()"
+      class="w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold py-4 rounded-xl text-base transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2">
+      <i class="fas fa-play"></i> 종합 검사 시작
+    </button>
   </div>
 
   <!-- ─── 로딩 ─── -->
-  <div id="loadingBox" class="card p-8 mb-6 hidden text-center">
+  <div id="loadingBox" class="card p-8 mb-5 hidden text-center">
     <i class="fas fa-circle-notch spinner text-blue-500 text-4xl mb-4"></i>
-    <p class="text-lg font-semibold text-slate-700 mb-1" id="loadingText">브라우저 실행 중...</p>
-    <p class="text-slate-400 text-sm mb-4">접근성 · 오탈자 · 링크를 순차 검사합니다.</p>
-    <div class="bg-slate-100 rounded-full h-2 overflow-hidden max-w-md mx-auto">
+    <div id="loadingStep" class="text-slate-600 font-semibold mb-3">검사 준비 중...</div>
+    <div class="w-full bg-slate-100 rounded-full h-2 max-w-sm mx-auto">
       <div id="progressBar" class="progress-bar bg-blue-500 h-2 rounded-full" style="width:0%"></div>
     </div>
-    <p id="progressStep" class="text-xs text-slate-400 mt-2"></p>
+    <div id="batchProgress" class="mt-4 text-xs text-slate-400 hidden">
+      <span id="batchDone">0</span> / <span id="batchTotal">0</span> 페이지 완료
+      &nbsp;·&nbsp; 예상 잔여: <span id="batchEta">-</span>
+    </div>
   </div>
 
-  <!-- ─── 에러 ─── -->
-  <div id="errorBox" class="card p-6 mb-6 hidden border-l-4 border-red-500 bg-red-50">
+  <!-- ─── 오류 ─── -->
+  <div id="errorBox" class="card p-6 mb-5 hidden bg-red-50 border border-red-200">
     <div class="flex items-start gap-3">
-      <i class="fas fa-exclamation-triangle text-red-500 text-2xl mt-0.5"></i>
+      <i class="fas fa-exclamation-triangle text-red-500 text-xl mt-0.5"></i>
       <div>
-        <p class="font-bold text-red-700">검사 중 오류가 발생했습니다</p>
-        <p id="errorMsg" class="text-red-600 text-sm mt-1"></p>
+        <p class="font-bold text-red-700 mb-1">검사 오류</p>
+        <p id="errorMsg" class="text-sm text-red-600"></p>
       </div>
     </div>
   </div>
 
-  <!-- ─── 결과 영역 ─── -->
+  <!-- ─── 단일 결과 영역 ─── -->
   <div id="resultArea" class="hidden fade-in">
 
-    <!-- 요약 헤더 -->
-    <div class="card p-6 mb-4">
-      <div class="flex items-start justify-between flex-wrap gap-4">
-        <div>
-          <h2 class="text-lg font-bold text-slate-800">종합 검사 결과</h2>
-          <p id="resultUrl" class="text-slate-500 text-sm font-mono truncate max-w-xs sm:max-w-lg mt-0.5"></p>
-          <p id="resultTitle" class="text-slate-400 text-xs mt-0.5"></p>
-          <p id="resultTime" class="text-slate-400 text-xs"></p>
-        </div>
-        <div class="flex gap-2 flex-wrap">
-          <button onclick="downloadReport()" class="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow transition-all">
-            <i class="fas fa-file-download"></i> HTML 보고서
-          </button>
-          <button onclick="printReport()" class="flex items-center gap-2 bg-slate-600 hover:bg-slate-700 text-white font-semibold py-2 px-4 rounded-lg text-sm shadow transition-all">
-            <i class="fas fa-print"></i> 인쇄
-          </button>
-        </div>
-      </div>
+    <!-- 헤더 카드 -->
+    <div class="card p-5 mb-4" id="resultHeader"></div>
 
-      <!-- 3개 요약 카드 -->
-      <div class="grid grid-cols-3 gap-3 mt-5" id="topSummaryCards">
-        <!-- JS로 채움 -->
-      </div>
-    </div>
-
-    <!-- 스크린샷 -->
-    <div id="screenshotCard" class="card p-6 mb-4 hidden">
-      <h3 class="font-bold text-slate-700 mb-3 flex items-center gap-2">
-        <i class="fas fa-camera text-blue-500"></i> 페이지 스크린샷
-        <span class="badge-pill bg-slate-100 text-slate-500 ml-auto">증적자료</span>
-      </h3>
-      <img id="screenshotImg" src="" alt="페이지 스크린샷" class="rounded-xl border border-slate-200 shadow max-w-full" />
-    </div>
-
-    <!-- 메인 탭 -->
-    <div class="card overflow-hidden mb-4">
-      <!-- 탭 헤더 -->
-      <div class="flex border-b border-slate-200 bg-white">
-        <button class="main-tab-btn active flex-1 py-3.5 px-3 text-sm font-semibold text-slate-600 flex items-center justify-center gap-2" onclick="switchMainTab('accessibility', this)">
-          <i class="fas fa-universal-access text-blue-500"></i>
+    <!-- 탭 네비게이션 -->
+    <div class="card mb-4 overflow-hidden">
+      <div class="flex overflow-x-auto" id="mainTabBar">
+        <button id="tab-btn-a11y" class="main-tab-btn active flex-1 py-3.5 px-3 text-sm font-semibold flex items-center justify-center gap-2 min-w-max"
+          onclick="switchMainTab('a11y', this)">
+          <i class="fas fa-universal-access"></i>
           <span class="hidden sm:inline">접근성</span>
-          <span id="badge-accessibility" class="badge-pill bg-red-100 text-red-600"></span>
+          <span id="badge-a11y" class="badge-pill bg-red-100 text-red-600"></span>
         </button>
-        <button class="main-tab-btn flex-1 py-3.5 px-3 text-sm font-semibold text-slate-500 flex items-center justify-center gap-2" onclick="switchMainTab('spelling', this)">
-          <i class="fas fa-spell-check text-purple-500"></i>
+        <button id="tab-btn-spell" class="main-tab-btn flex-1 py-3.5 px-3 text-sm font-semibold text-slate-500 flex items-center justify-center gap-2 min-w-max hidden"
+          onclick="switchMainTab('spell', this)">
+          <i class="fas fa-spell-check"></i>
           <span class="hidden sm:inline">오탈자</span>
-          <span id="badge-spelling" class="badge-pill bg-purple-100 text-purple-600"></span>
+          <span id="badge-spell" class="badge-pill bg-purple-100 text-purple-600"></span>
         </button>
-        <button class="main-tab-btn flex-1 py-3.5 px-3 text-sm font-semibold text-slate-500 flex items-center justify-center gap-2" onclick="switchMainTab('links', this)">
-          <i class="fas fa-link text-amber-500"></i>
-          <span class="hidden sm:inline">링크 검사</span>
-          <span id="badge-links" class="badge-pill bg-red-100 text-red-600"></span>
+        <button id="tab-btn-links" class="main-tab-btn flex-1 py-3.5 px-3 text-sm font-semibold text-slate-500 flex items-center justify-center gap-2 min-w-max hidden"
+          onclick="switchMainTab('links', this)">
+          <i class="fas fa-link"></i>
+          <span class="hidden sm:inline">링크</span>
+          <span id="badge-links" class="badge-pill bg-amber-100 text-amber-600"></span>
         </button>
-        <button class="main-tab-btn flex-1 py-3.5 px-3 text-sm font-semibold text-slate-500 flex items-center justify-center gap-2" onclick="switchMainTab('chart', this)">
-          <i class="fas fa-chart-pie text-green-500"></i>
+        <button id="tab-btn-chart" class="main-tab-btn flex-1 py-3.5 px-3 text-sm font-semibold text-slate-500 flex items-center justify-center gap-2 min-w-max"
+          onclick="switchMainTab('chart', this)">
+          <i class="fas fa-chart-bar"></i>
           <span class="hidden sm:inline">차트</span>
         </button>
-        <button id="tab-btn-w3c" class="main-tab-btn flex-1 py-3.5 px-3 text-sm font-semibold text-slate-500 flex items-center justify-center gap-2 hidden" onclick="switchMainTab('w3c', this)">
-          <i class="fas fa-code text-blue-500"></i>
+        <button id="tab-btn-w3c" class="main-tab-btn flex-1 py-3.5 px-3 text-sm font-semibold text-slate-500 flex items-center justify-center gap-2 min-w-max hidden"
+          onclick="switchMainTab('w3c', this)">
+          <i class="fas fa-code"></i>
           <span class="hidden sm:inline">W3C</span>
-          <span id="badge-w3c" class="badge-pill bg-blue-100 text-blue-600"></span>
+          <span id="badge-w3c-warn" class="badge-pill bg-blue-100 text-blue-600"></span>
         </button>
-        <button id="tab-btn-krds" class="main-tab-btn flex-1 py-3.5 px-3 text-sm font-semibold text-slate-500 flex items-center justify-center gap-2 hidden" onclick="switchMainTab('krds', this)">
-          <i class="fas fa-flag text-purple-500"></i>
+        <button id="tab-btn-krds" class="main-tab-btn flex-1 py-3.5 px-3 text-sm font-semibold text-slate-500 flex items-center justify-center gap-2 min-w-max hidden"
+          onclick="switchMainTab('krds', this)">
+          <i class="fas fa-flag"></i>
           <span class="hidden sm:inline">KRDS</span>
           <span id="badge-krds" class="badge-pill bg-purple-100 text-purple-600"></span>
         </button>
       </div>
+    </div>
 
-      <!-- ── 접근성 탭 ── -->
-      <div id="tab-accessibility" class="p-6">
-        <!-- 접근성 점수 -->
-        <div class="flex flex-col sm:flex-row items-center gap-6 mb-6 p-4 bg-slate-50 rounded-xl">
-          <div class="relative w-32 h-32 shrink-0">
-            <svg viewBox="0 0 120 120" class="w-full h-full">
-              <circle cx="60" cy="60" r="50" fill="none" stroke="#e2e8f0" stroke-width="12"/>
-              <circle id="scoreArc" cx="60" cy="60" r="50" fill="none" stroke="#22c55e" stroke-width="12"
-                stroke-dasharray="314" stroke-dashoffset="314" stroke-linecap="round" class="score-ring"/>
-            </svg>
-            <div class="absolute inset-0 flex flex-col items-center justify-center">
-              <span id="scoreNum" class="text-4xl font-extrabold text-slate-800">–</span>
-              <span class="text-xs text-slate-400">/ 100</span>
+    <!-- 탭 패널들 -->
+    <div id="tab-panels" class="card p-6">
+
+      <!-- 접근성 탭 -->
+      <div id="tab-a11y">
+        <div class="flex flex-wrap gap-3 mb-5" id="topSummaryCards"></div>
+        <div id="screenshotCard" class="hidden mb-5">
+          <details>
+            <summary class="flex items-center gap-2 cursor-pointer p-3 bg-slate-50 rounded-xl border border-slate-200 hover:bg-slate-100 transition">
+              <i class="fas fa-camera text-slate-400"></i>
+              <span class="font-semibold text-sm text-slate-700">스크린샷</span>
+              <i class="fas fa-chevron-down text-slate-400 text-xs chev ml-auto"></i>
+            </summary>
+            <div class="mt-2 rounded-xl overflow-hidden border border-slate-200">
+              <img id="screenshotImg" class="w-full" alt="페이지 스크린샷" />
             </div>
-          </div>
-          <div class="flex-1 w-full">
-            <div class="flex items-center gap-2 mb-3">
-              <p id="scoreLabel" class="font-bold text-lg"></p>
-              <span id="wcagBadge" class="badge-pill bg-blue-100 text-blue-700"></span>
-            </div>
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              <div class="rounded-lg p-3 bg-red-50 border border-red-100 text-center">
-                <div id="statViol" class="text-2xl font-extrabold text-red-500">–</div>
-                <div class="text-xs text-red-700 font-medium mt-0.5">위반</div>
-              </div>
-              <div class="rounded-lg p-3 bg-green-50 border border-green-100 text-center">
-                <div id="statPass" class="text-2xl font-extrabold text-green-500">–</div>
-                <div class="text-xs text-green-700 font-medium mt-0.5">통과</div>
-              </div>
-              <div class="rounded-lg p-3 bg-amber-50 border border-amber-100 text-center">
-                <div id="statInc" class="text-2xl font-extrabold text-amber-500">–</div>
-                <div class="text-xs text-amber-700 font-medium mt-0.5">검토필요</div>
-              </div>
-              <div class="rounded-lg p-3 bg-slate-50 border border-slate-200 text-center">
-                <div id="statIna" class="text-2xl font-extrabold text-slate-400">–</div>
-                <div class="text-xs text-slate-500 font-medium mt-0.5">해당없음</div>
-              </div>
-            </div>
+          </details>
+        </div>
+        <!-- 위반 목록 -->
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-bold text-slate-800 text-sm">접근성 위반 목록</h3>
+          <div class="flex gap-1.5" id="filterBtns">
+            <button onclick="filterViolations('all')" data-filter="all"
+              class="filter-btn active text-xs px-3 py-1.5 rounded-lg bg-slate-800 text-white transition">전체</button>
+            <button onclick="filterViolations('critical')" data-filter="critical"
+              class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 transition">치명</button>
+            <button onclick="filterViolations('serious')" data-filter="serious"
+              class="filter-btn text-xs px-3 py-1.5 rounded-lg bg-orange-100 text-orange-700 hover:bg-orange-200 transition">심각</button>
           </div>
         </div>
-
-        <!-- 심각도 -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5" id="impactBars"></div>
-
-        <!-- 위반 필터 -->
-        <div class="flex flex-wrap gap-2 mb-4">
-          <span class="text-xs font-semibold text-slate-500 self-center">필터:</span>
-          <button onclick="filterViolations('all')" class="vfilter-btn py-1 px-3 rounded-lg text-xs font-medium border border-slate-300 bg-slate-800 text-white" data-f="all">전체</button>
-          <button onclick="filterViolations('critical')" class="vfilter-btn py-1 px-3 rounded-lg text-xs font-medium border border-red-200 text-red-600 hover:bg-red-50" data-f="critical">치명적</button>
-          <button onclick="filterViolations('serious')"  class="vfilter-btn py-1 px-3 rounded-lg text-xs font-medium border border-orange-200 text-orange-600 hover:bg-orange-50" data-f="serious">심각</button>
-          <button onclick="filterViolations('moderate')" class="vfilter-btn py-1 px-3 rounded-lg text-xs font-medium border border-amber-200 text-amber-600 hover:bg-amber-50" data-f="moderate">보통</button>
-          <button onclick="filterViolations('minor')"    class="vfilter-btn py-1 px-3 rounded-lg text-xs font-medium border border-lime-200 text-lime-600 hover:bg-lime-50" data-f="minor">경미</button>
-        </div>
-        <div id="violationsList"></div>
-        <div id="noViolations" class="hidden text-center py-12">
-          <div class="text-5xl mb-3">🎉</div>
-          <p class="text-lg font-bold text-green-600">위반 항목 없음!</p>
-        </div>
+        <div id="violationList" class="space-y-2"></div>
       </div>
 
-      <!-- ── 오탈자 탭 ── -->
-      <div id="tab-spelling" class="p-6 hidden">
-        <div class="flex flex-wrap gap-3 mb-5" id="spellSummaryBars"></div>
-        <div id="spellingList"></div>
-        <div id="noSpelling" class="hidden text-center py-12">
-          <div class="text-5xl mb-3">✅</div>
-          <p class="text-lg font-bold text-green-600">오탈자가 발견되지 않았습니다!</p>
-          <p class="text-slate-400 text-sm mt-1">한글 맞춤법 검사를 통과했습니다.</p>
-        </div>
-        <div id="spellNotRun" class="hidden text-center py-12 text-slate-400">
-          <i class="fas fa-ban text-3xl mb-3"></i>
+      <!-- 오탈자 탭 -->
+      <div id="tab-spell" class="hidden">
+        <div id="spellNotRun" class="text-center py-12 text-slate-400">
+          <i class="fas fa-spell-check text-4xl mb-3 block"></i>
           <p>오탈자 검사가 비활성화되었습니다.</p>
+          <p class="text-xs mt-1">검사 옵션에서 '오탈자 검사'를 활성화하세요.</p>
         </div>
+        <div id="spellResult" class="hidden"></div>
       </div>
 
-      <!-- ── 링크 탭 ── -->
-      <div id="tab-links" class="p-6 hidden">
-        <div class="flex flex-wrap gap-3 mb-5" id="linkSummaryBars"></div>
-        <!-- 링크 필터 -->
-        <div class="flex gap-2 mb-4">
-          <span class="text-xs font-semibold text-slate-500 self-center">표시:</span>
-          <button onclick="filterLinks('dead')" class="lfilter-btn py-1 px-3 rounded-lg text-xs font-medium border border-red-300 bg-red-600 text-white" data-f="dead">❌ 오류 링크</button>
-          <button onclick="filterLinks('redirect')" class="lfilter-btn py-1 px-3 rounded-lg text-xs font-medium border border-amber-200 text-amber-600 hover:bg-amber-50" data-f="redirect">↪ 리다이렉트</button>
-          <button onclick="filterLinks('all')" class="lfilter-btn py-1 px-3 rounded-lg text-xs font-medium border border-slate-300 text-slate-600 hover:bg-slate-50" data-f="all">전체</button>
-        </div>
-        <div id="linksList"></div>
-        <div id="noLinks" class="hidden text-center py-12">
-          <div class="text-5xl mb-3">🎉</div>
-          <p class="text-lg font-bold text-green-600">데드링크 없음!</p>
-          <p class="text-slate-400 text-sm mt-1">모든 링크가 정상적으로 연결되어 있습니다.</p>
-        </div>
-        <div id="linksNotRun" class="hidden text-center py-12 text-slate-400">
-          <i class="fas fa-ban text-3xl mb-3"></i>
+      <!-- 링크 탭 -->
+      <div id="tab-links" class="hidden">
+        <div id="linksNotRun" class="text-center py-12 text-slate-400">
+          <i class="fas fa-link text-4xl mb-3 block"></i>
           <p>링크 검사가 비활성화되었습니다.</p>
         </div>
+        <div id="linksResult" class="hidden"></div>
       </div>
 
-      <!-- ── 차트 탭 ── -->
-      <div id="tab-chart" class="p-6 hidden">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-6">
-          <div><h3 class="font-semibold text-slate-700 mb-3 text-center text-sm">접근성 심각도 분포</h3><canvas id="impactChart" height="240"></canvas></div>
-          <div><h3 class="font-semibold text-slate-700 mb-3 text-center text-sm">검사 결과 현황</h3><canvas id="summaryChart" height="240"></canvas></div>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div><h3 class="font-semibold text-slate-700 mb-3 text-center text-sm">한글 오탈자 현황</h3><canvas id="spellChart" height="240"></canvas></div>
-          <div><h3 class="font-semibold text-slate-700 mb-3 text-center text-sm">링크 상태 분포</h3><canvas id="linkChart" height="240"></canvas></div>
+      <!-- 차트 탭 -->
+      <div id="tab-chart" class="hidden">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div><canvas id="chartViolations" height="220"></canvas></div>
+          <div><canvas id="chartSpelling" height="220"></canvas></div>
         </div>
       </div>
 
-      <!-- ── W3C 탭 ── -->
-      <div id="tab-w3c" class="p-6 hidden">
-        <!-- W3C KPI -->
-        <div class="flex flex-wrap gap-3 mb-5" id="w3cSummaryBars"></div>
-        <!-- W3C 미수행 안내 -->
-        <div id="w3cNotRun" class="hidden text-center py-12 text-slate-400">
-          <i class="fas fa-ban text-3xl mb-3 block"></i>
-          <p>W3C 표준검사가 비활성화되었습니다.</p>
-          <p class="text-xs mt-1">검사 설정에서 'W3C 표준검사'를 활성화하세요.</p>
+      <!-- W3C 탭 -->
+      <div id="tab-w3c" class="hidden">
+        <div id="w3cNotRun" class="text-center py-12 text-slate-400">
+          <i class="fas fa-code text-4xl mb-3 block"></i>
+          <p>W3C 마크업 검사가 비활성화되었습니다.</p>
         </div>
-        <!-- W3C 오류 없음 -->
-        <div id="noW3CErrors" class="hidden text-center py-12">
-          <div class="text-5xl mb-3">✅</div>
-          <p class="text-lg font-bold text-green-600">W3C 마크업 오류 없음!</p>
-          <p class="text-slate-400 text-sm mt-1">HTML 문서가 W3C 표준을 준수합니다.</p>
+        <div id="w3cSummaryBars" class="flex flex-wrap gap-3 mb-5 hidden"></div>
+        <div id="w3cNotRun2" class="hidden"></div>
+        <div id="noW3CErrors" class="hidden text-center py-8">
+          <i class="fas fa-check-circle text-3xl text-green-500 mb-3 block"></i>
+          <p class="text-green-700 font-semibold">W3C 마크업 오류 없음</p>
         </div>
-        <!-- W3C 오류 목록 -->
-        <div id="w3cErrorsList"></div>
-        <!-- W3C 경고 -->
-        <div id="w3cWarningSection" class="hidden">
-          <h3 class="font-semibold text-slate-700 mb-3 flex items-center gap-2 mt-4">
-            <i class="fas fa-exclamation-triangle text-amber-500"></i>
-            경고 목록
-            <span id="badge-w3c-warn" class="badge-pill bg-amber-100 text-amber-700"></span>
-          </h3>
-          <div id="w3cWarningsList"></div>
+        <div id="w3cErrorsList" class="space-y-2"></div>
+        <div id="w3cWarningSection" class="hidden mt-4">
+          <div class="flex items-center gap-2 mb-2">
+            <span class="font-semibold text-sm text-slate-700">경고</span>
+            <span id="badge-w3c-warn2" class="badge-pill bg-yellow-100 text-yellow-700"></span>
+          </div>
+          <div id="w3cWarningList" class="space-y-1"></div>
         </div>
-        <!-- W3C 정보 -->
         <div id="w3cInfo" class="hidden text-xs text-slate-400 mt-4 pt-4 border-t border-slate-100">
           <i class="fas fa-info-circle mr-1"></i>
-          검사 기준: W3C Markup Validation Service (validator.w3.org/nu) |
+          검사 엔진: <a href="https://validator.w3.org/nu/" target="_blank" class="text-blue-500 hover:underline">validator.w3.org/nu</a> ·
           검사 일시: <span id="w3cCheckedAt">-</span>
         </div>
       </div>
-      <!-- ── KRDS 탭 ── -->
-      <div id="tab-krds" class="p-6 hidden">
-        <!-- KRDS 미수행 안내 -->
+
+      <!-- KRDS 탭 -->
+      <div id="tab-krds" class="hidden">
         <div id="krdsNotRun" class="text-center py-12 text-slate-400">
-          <i class="fas fa-ban text-3xl mb-3 block"></i>
+          <i class="fas fa-flag text-4xl mb-3 block"></i>
           <p>KRDS 검사가 비활성화되었습니다.</p>
-          <p class="text-xs mt-1">검사 설정에서 'KRDS 검사'를 활성화하세요.</p>
+          <p class="text-xs mt-1">검사 옵션에서 'KRDS 검사'를 활성화하세요.</p>
         </div>
-        <!-- KRDS 요약 바 -->
         <div class="hidden" id="krdsRunResult">
           <div class="flex flex-wrap gap-3 mb-5" id="krdsSummaryBars"></div>
-          <!-- 카테고리별 결과 -->
           <div id="krdsItemList"></div>
           <div class="text-xs text-slate-400 mt-4 pt-4 border-t border-slate-100">
             <i class="fas fa-info-circle mr-1"></i>
-            검사 기준: KRDS (Korea Design System) UI/UX 가이드라인 |
-            참고: <a href="https://www.krds.go.kr" target="_blank" class="text-blue-500 hover:underline">www.krds.go.kr</a> |
+            검사 기준: <a href="https://www.krds.go.kr" target="_blank" class="text-blue-500 hover:underline">KRDS UI/UX 가이드라인</a> ·
             검사 일시: <span id="krdsCheckedAt">-</span>
           </div>
         </div>
       </div>
+
     </div>
+  </div>
+
+  <!-- ─── 배치(다중) 결과 영역 ─── -->
+  <div id="batchResultArea" class="hidden fade-in">
+    <!-- KPI 카드 -->
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" id="batchKpiCards"></div>
+    <!-- 결과 테이블 -->
+    <div class="card overflow-hidden mb-4">
+      <div class="flex items-center justify-between p-4 border-b border-slate-100">
+        <h3 class="font-bold text-slate-800">검사 결과 목록</h3>
+        <div class="flex gap-2">
+          <button id="batchDlBtn" onclick="downloadBatchReport()" disabled
+            class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg transition disabled:opacity-40">
+            <i class="fas fa-file-alt mr-1"></i>HTML 보고서
+          </button>
+          <button id="batchExcelBtn" onclick="downloadBatchExcel()" disabled
+            class="text-xs bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1.5 rounded-lg transition disabled:opacity-40">
+            <i class="fas fa-file-excel mr-1"></i>Excel
+          </button>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs">
+          <thead class="bg-slate-50 text-slate-500 uppercase tracking-wide">
+            <tr>
+              <th class="px-3 py-3 text-left w-8">#</th>
+              <th class="px-3 py-3 text-left">페이지</th>
+              <th class="px-3 py-3 text-center w-16">점수</th>
+              <th class="px-3 py-3 text-center w-14">위반</th>
+              <th class="px-3 py-3 text-center w-14 th-spell hidden">오탈자</th>
+              <th class="px-3 py-3 text-center w-14 th-links hidden">링크오류</th>
+              <th class="px-3 py-3 text-center w-14 th-w3c hidden">W3C</th>
+              <th class="px-3 py-3 text-center w-14 th-krds hidden">KRDS</th>
+              <th class="px-3 py-3 text-center w-16">상태</th>
+              <th class="px-3 py-3 text-center w-16">증적</th>
+            </tr>
+          </thead>
+          <tbody id="batchTbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <footer class="text-center text-slate-400 text-xs py-5 border-t border-slate-200">
-  우주최고 종합검사 &nbsp;·&nbsp; axe-core &amp; Playwright &nbsp;·&nbsp; WCAG 2.1
+  우주최고 종합검사 &nbsp;·&nbsp; axe-core + Playwright &nbsp;·&nbsp; WCAG 2.1 / KRDS
 </footer>
 
+<!-- ─── 증적 모달 ─── -->
+<div id="evidenceModal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4" onclick="if(event.target===this)closeEvidenceModal()">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+    <div class="flex items-center justify-between p-5 border-b border-slate-100">
+      <h3 class="font-bold text-slate-800"><i class="fas fa-file-alt mr-2 text-blue-500"></i>검사 증적</h3>
+      <button onclick="closeEvidenceModal()" class="text-slate-400 hover:text-slate-600 text-xl"><i class="fas fa-times"></i></button>
+    </div>
+    <div id="evidenceContent" class="overflow-y-auto p-5 flex-1"></div>
+  </div>
+</div>
+
 <script>
-// ══════════════════════════════════════════
-// 전역 상태
-// ══════════════════════════════════════════
-let scanResult = null
-let charts = {}
+// ══════════════════════════════════════════════════════
+//  전역 상태
+// ══════════════════════════════════════════════════════
+let scanResult   = null
+let batchSession = null   // 배치 스캔 세션
+let charts       = {}
 let progressInterval = null
+let batchPollTimer   = null
+let currentInputTab  = 'url'
+let selectedFiles    = []   // 로컬 파일 목록 (File 객체)
 let currentLinkFilter = 'dead'
+let currentBatchOptions = {}
 
 const IMPACT_CFG = {
-  critical: { label:'치명적', color:'#dc2626', bg:'bg-red-100', text:'text-red-700', border:'border-red-200', icon:'fa-skull' },
+  critical: { label:'치명적', color:'#dc2626', bg:'bg-red-100',    text:'text-red-700',    border:'border-red-200',    icon:'fa-skull' },
   serious:  { label:'심각',   color:'#ea580c', bg:'bg-orange-100', text:'text-orange-700', border:'border-orange-200', icon:'fa-exclamation-circle' },
-  moderate: { label:'보통',   color:'#d97706', bg:'bg-amber-100', text:'text-amber-700', border:'border-amber-200', icon:'fa-exclamation-triangle' },
-  minor:    { label:'경미',   color:'#65a30d', bg:'bg-lime-100', text:'text-lime-700', border:'border-lime-200', icon:'fa-info-circle' }
+  moderate: { label:'보통',   color:'#d97706', bg:'bg-amber-100',  text:'text-amber-700',  border:'border-amber-200',  icon:'fa-exclamation-triangle' },
+  minor:    { label:'경미',   color:'#65a30d', bg:'bg-lime-100',   text:'text-lime-700',   border:'border-lime-200',   icon:'fa-info-circle' }
 }
 
-// ══════════════════════════════════════════
-// 검사 시작
-// ══════════════════════════════════════════
-async function startScan() {
-  const url = document.getElementById('urlInput').value.trim()
-  if (!url) { alert('URL을 입력해주세요.'); return }
-  const level = document.getElementById('levelSelect').value
-  const includeScreenshot = document.querySelector('input[name="screenshot"]:checked').value === 'true'
-  const checkSpelling = document.getElementById('chkSpell').checked
-  const checkLinks = document.getElementById('chkLinks').checked
-  const useW3CLinks = checkLinks && document.getElementById('chkW3CLinks').checked
-  const checkW3C = document.getElementById('chkW3C').checked
-  const checkKRDS = document.getElementById('chkKRDS').checked
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
 
-  document.getElementById('errorBox').classList.add('hidden')
-  document.getElementById('resultArea').classList.add('hidden')
-  document.getElementById('loadingBox').classList.remove('hidden')
-  document.getElementById('scanBtn').disabled = true
-  document.getElementById('scanBtn').innerHTML = '<i class="fas fa-circle-notch fa-spin mr-2"></i> 검사 중...'
-
-  let prog = 0
-  document.getElementById('progressBar').style.width = '0%'
-  const steps = [
-    '브라우저 실행 중...',
-    '페이지 로드 중...',
-    '접근성 검사 (axe-core)...',
-    checkSpelling ? '오탈자 검사 중...' : null,
-    checkLinks ? '링크 유효성 검사 중...' : null,
-    checkW3C ? 'W3C 표준 검사 중...' : null,
-    checkKRDS ? 'KRDS 준수 검사 중...' : null,
-    '결과 정리 중...'
-  ].filter(Boolean)
-  let stepIdx = 0
-  progressInterval = setInterval(() => {
-    const targetPct = Math.min(90, (stepIdx / steps.length) * 95)
-    prog = Math.min(prog + (targetPct > prog ? 2 : 0.3), 92)
-    document.getElementById('progressBar').style.width = prog + '%'
-    if (prog > (stepIdx + 1) / steps.length * 80 && stepIdx < steps.length) {
-      document.getElementById('loadingText').textContent = steps[stepIdx] || '처리 중...'
-      document.getElementById('progressStep').textContent = `${stepIdx + 1} / ${steps.length} 단계`
-      stepIdx++
+// ══════════════════════════════════════════════════════
+//  입력 소스 탭 전환
+// ══════════════════════════════════════════════════════
+function switchInputTab(tab) {
+  currentInputTab = tab
+  ;['url','multi','file','folder'].forEach(t => {
+    const btn = document.getElementById(`tab-${t}-btn`)
+    const panel = document.getElementById(`panel-${t}`)
+    if (t === tab) {
+      btn.classList.add('active')
+      panel.classList.remove('hidden')
+    } else {
+      btn.classList.remove('active')
+      panel.classList.add('hidden')
     }
-  }, 350)
+  })
+}
+
+// 옵션 카드 토글
+function toggleOptCard(card, chkId) {
+  const chk = document.getElementById(chkId)
+  chk.checked = !chk.checked
+  card.classList.toggle('active', chk.checked)
+}
+
+// ══════════════════════════════════════════════════════
+//  URL 다중입력
+// ══════════════════════════════════════════════════════
+document.getElementById('multiUrls').addEventListener('input', () => {
+  const urls = getMultiUrls()
+  document.getElementById('multiUrlCount').textContent = `${urls.length.toLocaleString()}개 URL`
+})
+
+function getMultiUrls() {
+  return document.getElementById('multiUrls').value
+    .split('\n')
+    .map(s => s.trim())
+    .filter(s => s && (s.startsWith('http://') || s.startsWith('https://')))
+}
+
+function clearMultiUrls() {
+  document.getElementById('multiUrls').value = ''
+  document.getElementById('multiUrlCount').textContent = '0개 URL'
+}
+
+function loadUrlFile(input) {
+  const f = input.files[0]; if (!f) return
+  const reader = new FileReader()
+  reader.onload = e => {
+    document.getElementById('multiUrls').value = e.target.result
+    document.getElementById('multiUrls').dispatchEvent(new Event('input'))
+  }
+  reader.readAsText(f, 'UTF-8')
+  input.value = ''
+}
+
+// ══════════════════════════════════════════════════════
+//  로컬 파일 처리
+// ══════════════════════════════════════════════════════
+function handleFileSelect(input) {
+  const files = Array.from(input.files).filter(f => /\.(html?|jsp|asp|php)$/i.test(f.name))
+  addSelectedFiles(files)
+}
+
+function handleFileDrop(e) {
+  e.preventDefault()
+  document.getElementById('fileDropzone').classList.remove('over')
+  const files = Array.from(e.dataTransfer.files).filter(f => /\.(html?|jsp|asp|php)$/i.test(f.name))
+  addSelectedFiles(files)
+}
+
+function handleFolderSelect(input) {
+  const files = Array.from(input.files).filter(f => /\.(html?|jsp|asp|php)$/i.test(f.name))
+  addSelectedFiles(files)
+  document.getElementById('folderInfo').classList.remove('hidden')
+  document.getElementById('folderFileCount').textContent = files.length
+}
+
+function handleFolderDrop(e) {
+  e.preventDefault()
+  document.getElementById('folderDropzone').classList.remove('over')
+  // webkitGetAsEntry를 이용한 재귀 폴더 처리
+  const items = Array.from(e.dataTransfer.items)
+  const filePromises = []
+  items.forEach(item => {
+    const entry = item.webkitGetAsEntry?.()
+    if (entry) filePromises.push(traverseEntry(entry))
+  })
+  Promise.all(filePromises).then(fileLists => {
+    const files = fileLists.flat().filter(f => /\.(html?|jsp|asp|php)$/i.test(f.name))
+    addSelectedFiles(files)
+    document.getElementById('folderInfo').classList.remove('hidden')
+    document.getElementById('folderFileCount').textContent = selectedFiles.length
+  })
+}
+
+function traverseEntry(entry) {
+  return new Promise(resolve => {
+    if (entry.isFile) {
+      entry.file(f => resolve([f]))
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader()
+      const readAll = (results=[]) => {
+        reader.readEntries(entries => {
+          if (!entries.length) {
+            Promise.all(results.map(traverseEntry)).then(lists => resolve(lists.flat()))
+          } else {
+            readAll([...results, ...entries])
+          }
+        })
+      }
+      readAll()
+    } else resolve([])
+  })
+}
+
+function addSelectedFiles(files) {
+  const MAX = 500
+  selectedFiles = [...selectedFiles, ...files].slice(0, MAX)
+  renderFileList()
+}
+
+function removeFile(idx) {
+  selectedFiles.splice(idx, 1)
+  renderFileList()
+}
+
+function renderFileList() {
+  const el = document.getElementById('fileList')
+  el.innerHTML = selectedFiles.map((f, i) => `
+    <div class="url-tag">
+      <i class="fas fa-file-code text-orange-400 text-xs"></i>
+      <span class="max-w-[140px] truncate" title="${esc(f.name)}">${esc(f.name)}</span>
+      <button onclick="removeFile(${i})" class="text-red-400 hover:text-red-600 ml-1"><i class="fas fa-times"></i></button>
+    </div>`).join('')
+  if (selectedFiles.length > 0) {
+    document.getElementById('fileDropzone').querySelector('p').textContent = `${selectedFiles.length}개 파일 선택됨`
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  검사 시작 (단일 / 배치 분기)
+// ══════════════════════════════════════════════════════
+async function startScan() {
+  const opts = getOptions()
+
+  // 입력 소스별 분기
+  if (currentInputTab === 'url') {
+    const url = document.getElementById('urlInput').value.trim()
+    if (!url) { alert('URL을 입력해주세요.'); return }
+    await runSingleScan(url, opts)
+
+  } else if (currentInputTab === 'multi') {
+    const urls = getMultiUrls()
+    if (!urls.length) { alert('URL을 입력해주세요.'); return }
+    if (urls.length === 1) {
+      await runSingleScan(urls[0], opts)
+    } else {
+      await runBatchScan(urls, opts)
+    }
+
+  } else if (currentInputTab === 'file' || currentInputTab === 'folder') {
+    if (!selectedFiles.length) { alert('파일을 선택해주세요.'); return }
+    await runLocalFileScan(selectedFiles, opts)
+  }
+}
+
+function getOptions() {
+  return {
+    level: document.getElementById('levelSelect').value,
+    includeScreenshot: document.querySelector('input[name="screenshot"]:checked').value === 'true',
+    checkSpelling: document.getElementById('chkSpell').checked,
+    checkLinks:    document.getElementById('chkLinks').checked,
+    useW3CLinks:   document.getElementById('chkLinks').checked && document.getElementById('chkW3CLinks').checked,
+    checkW3C:      document.getElementById('chkW3C').checked,
+    checkKRDS:     document.getElementById('chkKRDS').checked
+  }
+}
+
+// ─── 단일 URL 스캔 ───
+async function runSingleScan(url, opts) {
+  showLoading(true)
+  showError(false)
+  hideResults()
+  document.getElementById('scanBtn').disabled = true
+  document.getElementById('scanBtn').innerHTML = '<i class="fas fa-circle-notch spinner mr-2"></i>검사 중...'
+
+  const steps = [
+    'WCAG 접근성 검사 중...',
+    opts.checkSpelling ? '오탈자 검사 중...' : null,
+    opts.checkLinks    ? '링크 검사 중...'   : null,
+    opts.checkW3C      ? 'W3C 마크업 검사 중...' : null,
+    opts.checkKRDS     ? 'KRDS 준수 검사 중...'  : null,
+  ].filter(Boolean)
+
+  let stepIdx = 0
+  const stepTimer = setInterval(() => {
+    document.getElementById('loadingStep').textContent = steps[stepIdx % steps.length]
+    setProgress(Math.min(90, 15 + stepIdx * 20))
+    stepIdx++
+  }, 2000)
 
   try {
     const res = await fetch('/api/scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url, level, includeScreenshot, checkSpelling, checkLinks, useW3CLinks, checkW3C, checkKRDS })
+      body: JSON.stringify({ url, ...opts })
     })
     const data = await res.json()
-    if (!res.ok) throw new Error(data.error || '서버 오류')
-
-    clearInterval(progressInterval)
-    document.getElementById('progressBar').style.width = '100%'
-    await new Promise(r => setTimeout(r, 300))
-    document.getElementById('loadingBox').classList.add('hidden')
-    scanResult = data
-    renderAll(data)
-    document.getElementById('resultArea').classList.remove('hidden')
-    document.getElementById('resultArea').scrollIntoView({ behavior: 'smooth' })
+    clearInterval(stepTimer)
+    if (data.error) throw new Error(data.error)
+    setProgress(100)
+    setTimeout(() => {
+      showLoading(false)
+      renderSingle(data)
+      resetScanBtn()
+    }, 400)
   } catch(e) {
-    clearInterval(progressInterval)
-    document.getElementById('loadingBox').classList.add('hidden')
-    document.getElementById('errorBox').classList.remove('hidden')
-    document.getElementById('errorMsg').textContent = e.message
-  } finally {
-    document.getElementById('scanBtn').disabled = false
-    document.getElementById('scanBtn').innerHTML = '<i class="fas fa-play mr-2"></i> 종합 검사 시작'
+    clearInterval(stepTimer)
+    showLoading(false)
+    showError(true, e.message)
+    resetScanBtn()
   }
 }
 
-// ══════════════════════════════════════════
-// 전체 렌더
-// ══════════════════════════════════════════
-function renderAll(data) {
+// ─── 로컬 파일 스캔 ───
+async function runLocalFileScan(files, opts) {
+  showLoading(true)
+  showError(false)
+  hideResults()
+  document.getElementById('scanBtn').disabled = true
+  document.getElementById('scanBtn').innerHTML = '<i class="fas fa-circle-notch spinner mr-2"></i>파일 업로드 중...'
+
+  try {
+    // 파일을 FormData로 업로드
+    const formData = new FormData()
+    files.forEach(f => formData.append('files', f))
+    formData.append('options', JSON.stringify(opts))
+
+    const res = await fetch('/api/scan/local', { method: 'POST', body: formData })
+    const data = await res.json()
+    if (data.error) throw new Error(data.error)
+
+    showLoading(false)
+
+    if (data.results && data.results.length > 1) {
+      // 다중 파일 → 배치 결과로 표시
+      renderBatchInline(data.results, opts)
+    } else if (data.results && data.results.length === 1) {
+      renderSingle(data.results[0])
+    }
+    resetScanBtn()
+  } catch(e) {
+    showLoading(false)
+    showError(true, e.message)
+    resetScanBtn()
+  }
+}
+
+// ─── 배치(다중 URL) 스캔 ───
+async function runBatchScan(urls, opts) {
+  showLoading(true)
+  showError(false)
+  hideResults()
+  document.getElementById('scanBtn').disabled = true
+  document.getElementById('scanBtn').innerHTML = '<i class="fas fa-circle-notch spinner mr-2"></i>배치 시작 중...'
+  document.getElementById('batchProgress').classList.remove('hidden')
+  document.getElementById('batchTotal').textContent = urls.length
+  currentBatchOptions = opts
+
+  try {
+    const res = await fetch('/api/batch/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ urls, options: opts })
+    })
+    const data = await res.json()
+    if (data.error) throw new Error(data.error)
+
+    batchSession = data.sessionId
+    pollBatchStatus(batchSession, urls.length)
+  } catch(e) {
+    showLoading(false)
+    showError(true, e.message)
+    resetScanBtn()
+  }
+}
+
+// ─── 배치 폴링 ───
+let batchStartTime = Date.now()
+function pollBatchStatus(sessionId, total) {
+  batchStartTime = Date.now()
+  let pollInterval = 1000  // 처음엔 빠른 폴링
+  let consecutiveErrors = 0
+
+  const poll = async () => {
+    try {
+      const res  = await fetch(`/api/batch/${sessionId}/status`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      const done = (data.completed||0) + (data.failed||0)
+      const pct  = total > 0 ? Math.round(done / total * 100) : 0
+      setProgress(pct)
+      document.getElementById('batchDone').textContent  = (data.completed||0)
+      const failStr = data.failed > 0 ? ` (오류 ${data.failed})` : ''
+      document.getElementById('loadingStep').textContent = `${done}/${total} 페이지 완료${failStr} (${pct}%)`
+      // ETA 계산
+      if (done > 0) {
+        const elapsed = (Date.now() - batchStartTime) / 1000
+        const eta = Math.round((elapsed / done) * (total - done))
+        document.getElementById('batchEta').textContent = eta > 60 ? `${Math.floor(eta/60)}분 ${eta%60}초` : `${eta}초`
+      }
+      consecutiveErrors = 0
+      if (data.status === 'completed') {
+        clearInterval(batchPollTimer)
+        try {
+          const res2  = await fetch(`/api/batch/${sessionId}/results`)
+          const data2 = await res2.json()
+          showLoading(false)
+          renderBatchInline(data2.results || [], currentBatchOptions)
+        } catch(e2) {
+          showLoading(false)
+          showError(true, '결과 로드 실패: ' + e2.message)
+        }
+        resetScanBtn()
+      } else {
+        // 진행 속도에 따라 폴링 인터벌 조정 (빠르면 자주, 느리면 느리게)
+        const speed = done / ((Date.now() - batchStartTime) / 1000)  // 초당 처리 수
+        pollInterval = speed > 5 ? 500 : speed > 1 ? 1000 : 2000
+        batchPollTimer = setTimeout(poll, pollInterval)
+      }
+    } catch(e) {
+      consecutiveErrors++
+      if (consecutiveErrors < 5) {
+        batchPollTimer = setTimeout(poll, 2000)
+      } else {
+        clearInterval(batchPollTimer)
+        showError(true, '폴링 오류: 연결이 끊어졌습니다.')
+        resetScanBtn()
+      }
+    }
+  }
+  batchPollTimer = setTimeout(poll, 500)
+}
+
+// ══════════════════════════════════════════════════════
+//  단일 결과 렌더링
+// ══════════════════════════════════════════════════════
+function renderSingle(data) {
+  scanResult = data
+  document.getElementById('resultArea').classList.remove('hidden')
+
   renderHeader(data)
-  renderAccessibility(data)
+  renderA11y(data)
   renderSpelling(data.spelling)
   renderLinks(data.links)
   renderW3C(data.w3c)
   renderKRDS(data.krds)
   renderCharts(data)
-  // 배지 업데이트
-  document.getElementById('badge-accessibility').textContent = data.summary.violations
-  document.getElementById('badge-spelling').textContent = data.spelling?.totalIssues || 0
-  document.getElementById('badge-links').textContent = data.links?.dead?.length || 0
-  // W3C 탭 표시/숨김
-  const w3cTabBtn = document.getElementById('tab-btn-w3c')
-  if (data.w3c?.checkedAt) {
-    w3cTabBtn.classList.remove('hidden')
-    document.getElementById('badge-w3c').textContent = data.w3c.errorCount || 0
-  } else {
-    w3cTabBtn.classList.add('hidden')
-  }
-  // KRDS 탭 표시/숨김
-  const krdsTabBtn = document.getElementById('tab-btn-krds')
-  if (data.krds?.checkedAt) {
-    krdsTabBtn.classList.remove('hidden')
-    const failedCnt = (data.krds.items || []).filter(it => !it.passed).length
-    document.getElementById('badge-krds').textContent = failedCnt
-  } else {
-    krdsTabBtn.classList.add('hidden')
-  }
+  updateTabBadges(data)
 }
 
-// ── 헤더/요약 ──────────────────────────────
 function renderHeader(data) {
-  document.getElementById('resultUrl').textContent = data.url
-  document.getElementById('resultTitle').textContent = '페이지 제목: ' + (data.pageTitle || '알 수 없음')
-  document.getElementById('resultTime').textContent = '검사 일시: ' + new Date(data.scannedAt).toLocaleString('ko-KR')
+  const sc   = data.score || 0
+  const col  = sc >= 80 ? '#16a34a' : sc >= 50 ? '#d97706' : '#dc2626'
+  const r    = 54
+  const circ = 2 * Math.PI * r
+  const offset = circ * (1 - sc / 100)
+  const ts   = data.scannedAt ? new Date(data.scannedAt).toLocaleString('ko-KR') : '-'
+  const sum  = data.summary || {}
 
-  const sp = data.spelling || {}
-  const lk = data.links || {}
-  const w3c = data.w3c || {}
-  const deadCnt = lk.dead?.length || 0
-  const spellCnt = sp.totalIssues || 0
-  const w3cErrCnt = w3c.errorCount || 0
+  const extra = []
+  if (data.spelling?.checkedAt)
+    extra.push(`<div class="rounded-xl p-4 border border-purple-200 bg-purple-50 text-center cursor-pointer hover:opacity-80 transition" onclick="switchMainTabByName('spell')">
+      <div class="text-xs font-bold text-purple-700 mb-1"><i class="fas fa-spell-check mr-1"></i>오탈자</div>
+      <div class="text-2xl font-black text-purple-600">${data.spelling.totalIssues||0}</div>
+      <div class="text-xs text-purple-500">건</div></div>`)
+  if (data.links?.checkedAt)
+    extra.push(`<div class="rounded-xl p-4 border ${(data.links.dead?.length||0)>0?'border-red-200 bg-red-50':'border-green-200 bg-green-50'} text-center cursor-pointer hover:opacity-80 transition" onclick="switchMainTabByName('links')">
+      <div class="text-xs font-bold ${(data.links.dead?.length||0)>0?'text-red-700':'text-green-700'} mb-1"><i class="fas fa-link mr-1"></i>데드링크</div>
+      <div class="text-2xl font-black ${(data.links.dead?.length||0)>0?'text-red-600':'text-green-600'}">${data.links.dead?.length||0}</div>
+      <div class="text-xs ${(data.links.dead?.length||0)>0?'text-red-500':'text-green-500'}">건</div></div>`)
+  if (data.w3c?.checkedAt)
+    extra.push(`<div class="rounded-xl p-4 border ${(data.w3c.errorCount||0)>0?'border-red-200 bg-red-50':'border-green-200 bg-green-50'} text-center cursor-pointer hover:opacity-80 transition" onclick="switchMainTabByName('w3c')">
+      <div class="text-xs font-bold text-blue-700 mb-1"><i class="fas fa-code mr-1"></i>W3C</div>
+      <div class="text-2xl font-black ${(data.w3c.errorCount||0)>0?'text-red-600':'text-green-600'}">${data.w3c.errorCount||0}</div>
+      <div class="text-xs text-blue-500">${data.w3c.valid===false?'무효':'오류'}</div></div>`)
+  if (data.krds?.checkedAt)
+    extra.push(`<div class="rounded-xl p-4 border ${(data.krds.score||0)>=80?'border-green-200 bg-green-50':'border-yellow-200 bg-yellow-50'} text-center cursor-pointer hover:opacity-80 transition" onclick="switchMainTabByName('krds')">
+      <div class="text-xs font-bold text-rose-700 mb-1"><i class="fas fa-flag mr-1"></i>KRDS</div>
+      <div class="text-2xl font-black ${(data.krds.score||0)>=80?'text-green-600':'text-yellow-600'}">${data.krds.score||0}%</div>
+      <div class="text-xs text-rose-500">${data.krds.passed||0}/${data.krds.total||0}</div></div>`)
 
-  document.getElementById('topSummaryCards').innerHTML = `
-    <div class="rounded-xl p-4 ${data.summary.violations > 0 ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'} text-center cursor-pointer hover:opacity-80 transition-opacity" onclick="switchMainTab('accessibility', document.querySelector('.main-tab-btn'))">
-      <div class="text-xs font-semibold ${data.summary.violations > 0 ? 'text-red-500' : 'text-green-600'} mb-1"><i class="fas fa-universal-access mr-1"></i>접근성</div>
-      <div class="text-3xl font-extrabold ${data.summary.violations > 0 ? 'text-red-600' : 'text-green-600'}">${data.summary.violations}</div>
-      <div class="text-xs text-slate-500 mt-0.5">위반 / 점수 ${data.score}점</div>
+  document.getElementById('resultHeader').innerHTML = `
+    <div class="flex flex-wrap gap-4 items-start">
+      <div class="flex items-center gap-4 flex-1 min-w-0">
+        <svg width="130" height="130" viewBox="0 0 130 130">
+          <circle cx="65" cy="65" r="${r}" fill="none" stroke="#e2e8f0" stroke-width="10"/>
+          <circle class="score-ring" cx="65" cy="65" r="${r}" fill="none" stroke="${col}" stroke-width="10"
+            stroke-dasharray="${circ}" stroke-dashoffset="${offset}" stroke-linecap="round"/>
+          <text x="65" y="65" text-anchor="middle" dominant-baseline="central" font-size="26" font-weight="900" fill="${col}">${sc}</text>
+          <text x="65" y="83" text-anchor="middle" font-size="10" fill="#94a3b8">점수</text>
+        </svg>
+        <div class="min-w-0">
+          <div class="text-slate-500 text-xs mb-1 truncate" title="${esc(data.url)}">
+            <a href="${esc(data.url)}" target="_blank" class="hover:text-blue-500 transition">${esc(data.url)}</a>
+          </div>
+          <div class="font-bold text-slate-800 text-base mb-2 truncate">${esc(data.pageTitle||'(제목없음)')}</div>
+          <div class="flex flex-wrap gap-2 text-xs text-slate-500">
+            <span><i class="fas fa-times-circle text-red-500 mr-1"></i>위반 ${sum.violations||0}건</span>
+            <span><i class="fas fa-check-circle text-green-500 mr-1"></i>통과 ${sum.passes||0}건</span>
+            <span><i class="fas fa-question-circle text-amber-500 mr-1"></i>검토 ${sum.incomplete||0}건</span>
+            <span class="text-slate-400 ml-2"><i class="fas fa-clock mr-1"></i>${ts}</span>
+          </div>
+        </div>
+      </div>
+      ${extra.length ? `<div class="flex flex-wrap gap-3">${extra.join('')}</div>` : ''}
     </div>
-    <div class="rounded-xl p-4 ${spellCnt > 0 ? 'bg-purple-50 border border-purple-200' : 'bg-green-50 border border-green-200'} text-center cursor-pointer hover:opacity-80 transition-opacity" onclick="switchMainTabByName('spelling')">
-      <div class="text-xs font-semibold ${spellCnt > 0 ? 'text-purple-600' : 'text-green-600'} mb-1"><i class="fas fa-spell-check mr-1"></i>오탈자</div>
-      <div class="text-3xl font-extrabold ${spellCnt > 0 ? 'text-purple-600' : 'text-green-600'}">${spellCnt}</div>
-      <div class="text-xs text-slate-500 mt-0.5">${sp.totalWords || 0}개 단어 검사</div>
-    </div>
-    <div class="rounded-xl p-4 ${deadCnt > 0 ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'} text-center cursor-pointer hover:opacity-80 transition-opacity" onclick="switchMainTabByName('links')">
-      <div class="text-xs font-semibold ${deadCnt > 0 ? 'text-red-500' : 'text-green-600'} mb-1"><i class="fas fa-link mr-1"></i>데드링크</div>
-      <div class="text-3xl font-extrabold ${deadCnt > 0 ? 'text-red-600' : 'text-green-600'}">${deadCnt}</div>
-      <div class="text-xs text-slate-500 mt-0.5">총 ${lk.total || 0}개 링크 검사</div>
-    </div>
-    ${w3c.checkedAt ? `
-    <div class="rounded-xl p-4 ${w3cErrCnt > 0 ? 'bg-orange-50 border border-orange-200' : 'bg-green-50 border border-green-200'} text-center cursor-pointer hover:opacity-80 transition-opacity" onclick="switchMainTabByName('w3c')">
-      <div class="text-xs font-semibold ${w3cErrCnt > 0 ? 'text-orange-500' : 'text-green-600'} mb-1"><i class="fas fa-code mr-1"></i>W3C 표준</div>
-      <div class="text-3xl font-extrabold ${w3cErrCnt > 0 ? 'text-orange-600' : 'text-green-600'}">${w3cErrCnt}</div>
-      <div class="text-xs text-slate-500 mt-0.5">${w3c.valid===true?'유효 ✅':w3c.valid===false?'무효 ❌':'미검사'}</div>
-    </div>` : ''}
-    ${data.krds?.checkedAt ? (() => {
-      const kr = data.krds
-      const krColor = (kr.score||0) >= 80 ? 'green' : (kr.score||0) >= 60 ? 'yellow' : 'red'
-      const krBg = krColor === 'green' ? 'bg-green-50 border-green-200' : krColor === 'yellow' ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200'
-      const krTxt = krColor === 'green' ? 'text-green-600' : krColor === 'yellow' ? 'text-yellow-600' : 'text-red-600'
-      return `
-    <div class="rounded-xl p-4 ${krBg} border text-center cursor-pointer hover:opacity-80 transition-opacity" onclick="switchMainTabByName('krds')">
-      <div class="text-xs font-semibold ${krTxt} mb-1"><i class="fas fa-flag mr-1"></i>KRDS</div>
-      <div class="text-3xl font-extrabold ${krTxt}">${kr.score||0}%</div>
-      <div class="text-xs text-slate-500 mt-0.5">${kr.passed||0}/${kr.total||0} 항목 준수</div>
+    <div class="flex gap-2 mt-4 pt-4 border-t border-slate-100">
+      <button onclick="downloadReport()" class="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg transition">
+        <i class="fas fa-file-alt mr-1"></i>HTML 보고서
+      </button>
     </div>`
-    })() : ''}
-  `
+}
+
+function renderA11y(data) {
+  const sum = data.summary || {}
+  const ic  = sum.impactCounts || {}
+  const cards = [
+    { label:'치명적', val:ic.critical||0, color:'text-red-600', bg:'bg-red-50', border:'border-red-200' },
+    { label:'심각',   val:ic.serious||0,  color:'text-orange-600', bg:'bg-orange-50', border:'border-orange-200' },
+    { label:'보통',   val:ic.moderate||0, color:'text-amber-600', bg:'bg-amber-50', border:'border-amber-200' },
+    { label:'경미',   val:ic.minor||0,    color:'text-lime-600', bg:'bg-lime-50', border:'border-lime-200' },
+  ]
+  document.getElementById('topSummaryCards').innerHTML = cards.map(c => `
+    <div class="rounded-xl p-3 ${c.bg} border ${c.border} text-center min-w-[70px]">
+      <div class="text-2xl font-black ${c.color}">${c.val}</div>
+      <div class="text-xs font-semibold ${c.color}">${c.label}</div>
+    </div>`).join('')
 
   // 스크린샷
+  const sc = document.getElementById('screenshotCard')
   if (data.screenshot) {
-    document.getElementById('screenshotCard').classList.remove('hidden')
-    document.getElementById('screenshotImg').src = 'data:image/png;base64,' + data.screenshot
-  } else {
-    document.getElementById('screenshotCard').classList.add('hidden')
-  }
+    document.getElementById('screenshotImg').src = `data:image/png;base64,${data.screenshot}`
+    sc.classList.remove('hidden')
+  } else sc.classList.add('hidden')
+
+  renderViolations(data.violations || [], 'all')
 }
 
-// ── 접근성 렌더 ────────────────────────────
-function renderAccessibility(data) {
-  const score = data.score
-  const scoreColor = score >= 80 ? '#22c55e' : score >= 50 ? '#f59e0b' : '#ef4444'
-  const scoreLabel = score >= 80 ? '양호 ✅' : score >= 50 ? '개선 필요 ⚠️' : '위험 ❌'
-  document.getElementById('scoreNum').textContent = score
-  document.getElementById('scoreArc').style.stroke = scoreColor
-  document.getElementById('scoreArc').style.strokeDashoffset = 314 - (314 * score / 100)
-  document.getElementById('scoreLabel').textContent = scoreLabel
-  document.getElementById('scoreLabel').style.color = scoreColor
-  document.getElementById('wcagBadge').textContent = data.level.toUpperCase()
-  document.getElementById('statViol').textContent = data.summary.violations
-  document.getElementById('statPass').textContent = data.summary.passes
-  document.getElementById('statInc').textContent = data.summary.incomplete
-  document.getElementById('statIna').textContent = data.summary.inapplicable
-
-  document.getElementById('impactBars').innerHTML = Object.entries(IMPACT_CFG).map(([k, c]) => {
-    const cnt = data.summary.impactCounts[k] || 0
-    return `<div class="rounded-xl p-3 ${c.bg} border ${c.border} flex items-center gap-2.5">
-      <i class="fas ${c.icon} ${c.text} text-base"></i>
-      <div><div class="text-xl font-extrabold ${c.text}">${cnt}</div><div class="text-xs font-semibold ${c.text}">${c.label}</div></div>
-    </div>`
-  }).join('')
-
-  renderViolations(data.violations)
-}
-
-// ── 위반 목록 ──────────────────────────────
-function renderViolations(violations) {
-  const list = document.getElementById('violationsList')
-  const empty = document.getElementById('noViolations')
-  if (!violations || violations.length === 0) { list.innerHTML=''; empty.classList.remove('hidden'); return }
-  empty.classList.add('hidden')
-  list.innerHTML = violations.map((v, i) => {
-    const c = IMPACT_CFG[v.impact] || IMPACT_CFG.minor
-    const pageShort = v.pageUrl ? v.pageUrl.replace(/^https?:\/\//, '').substring(0, 60) : null
-    return `<details class="mb-2.5 rounded-xl border-l-4 impact-${v.impact} bg-white border border-slate-100 shadow-sm overflow-hidden group">
-      <summary class="flex items-center justify-between p-3.5 hover:bg-slate-50 transition-colors">
-        <div class="flex items-center gap-2.5 flex-1 min-w-0">
-          <span class="text-slate-400 font-mono text-xs w-5 shrink-0">${String(i+1).padStart(2,'0')}</span>
-          <i class="fas ${c.icon} ${c.text} shrink-0 text-sm"></i>
-          <div class="min-w-0">
-            <p class="font-semibold text-slate-800 text-sm truncate">${esc(v.help)}</p>
-            <div class="flex items-center gap-2 mt-0.5 flex-wrap">
-              <p class="text-xs text-slate-400 font-mono">${v.id}</p>
-              ${pageShort ? `<span class="text-xs text-slate-400"><i class="fas fa-globe mr-0.5"></i>${esc(pageShort)}</span>` : ''}
-            </div>
-          </div>
-        </div>
-        <div class="flex items-center gap-1.5 shrink-0 ml-2">
-          <span class="badge-pill ${c.bg} ${c.text} hidden sm:inline-flex">${c.label}</span>
-          <span class="badge-pill bg-slate-100 text-slate-600">${v.nodes.length}개</span>
-          <i class="fas fa-chevron-down text-slate-400 text-xs chev"></i>
-        </div>
-      </summary>
-      <div class="px-4 pb-4 pt-3 border-t border-slate-100">
-        <p class="text-xs text-slate-600 mb-2">${esc(v.description)}</p>
-        <div class="flex flex-wrap gap-1 mb-2">${v.tags.map(t=>`<span class="badge-pill bg-blue-50 text-blue-600">${t}</span>`).join('')}</div>
-        <a href="${v.helpUrl}" target="_blank" class="text-xs text-blue-600 hover:underline mb-2 inline-block"><i class="fas fa-external-link-alt mr-1"></i>WCAG 가이드라인</a>
-        <div class="space-y-1.5 mt-2">
-          ${v.nodes.slice(0,5).map(n=>`
-            <div class="bg-slate-100 rounded-lg p-2">
-              <div class="node-html text-slate-700 break-all">${esc(n.html)}</div>
-              ${n.failureSummary ? `<div class="text-xs text-slate-500 mt-1 italic">${esc(n.failureSummary)}</div>` : ''}
-              <div class="flex flex-wrap gap-3 mt-1.5 text-xs text-slate-400">
-                ${n.line ? `<span class="font-mono"><i class="fas fa-code text-violet-400 mr-1"></i>줄 ${n.line}</span>` : ''}
-                ${n.target && n.target.length ? `<span class="font-mono text-slate-400 truncate max-w-xs" title="${esc(n.target.join(' > '))}"><i class="fas fa-sitemap mr-1 text-blue-300"></i>${esc(n.target[n.target.length-1])}</span>` : ''}
-                ${n.pageUrl ? `<a href="${esc(n.pageUrl)}" target="_blank" class="hover:text-blue-600 underline truncate max-w-xs"><i class="fas fa-link mr-1"></i>${esc(n.pageUrl.replace(/^https?:\/\//,'').substring(0,50))}</a>` : ''}
-              </div>
-            </div>`).join('')}
-          ${v.nodes.length > 5 ? `<p class="text-xs text-slate-400 text-center">... 외 ${v.nodes.length-5}개</p>` : ''}
-        </div>
-      </div>
-    </details>`
-  }).join('')
-}
-
-// ── 오탈자 렌더 ────────────────────────────
-function renderSpelling(sp) {
-  if (!sp) {
-    document.getElementById('spellNotRun').classList.remove('hidden')
-    document.getElementById('spellingList').innerHTML = ''
-    document.getElementById('spellSummaryBars').innerHTML = ''
+function renderViolations(violations, filter) {
+  const filtered = filter === 'all' ? violations : violations.filter(v => v.impact === filter)
+  const el = document.getElementById('violationList')
+  if (!filtered.length) {
+    el.innerHTML = `<div class="text-center py-8 text-green-600"><i class="fas fa-check-circle text-3xl mb-2 block"></i><p class="font-semibold">위반 항목 없음 ✓</p></div>`
     return
   }
-  document.getElementById('spellNotRun').classList.add('hidden')
-
-  const engineLabel = sp.engine === 'daum' ? '다음 맞춤법 검사기' : '규칙 기반'
-  const engineColor = sp.engine === 'daum' ? 'text-blue-600' : 'text-slate-500'
-
-  document.getElementById('spellSummaryBars').innerHTML = `
-    <div class="rounded-xl p-3.5 bg-violet-50 border border-violet-200 flex items-center gap-3">
-      <i class="fas fa-font text-violet-500 text-lg"></i>
-      <div><div class="text-2xl font-extrabold text-violet-600">${sp.koreanIssues||0}</div><div class="text-xs font-semibold text-violet-700">오탈자 건수</div></div>
-    </div>
-    <div class="rounded-xl p-3.5 bg-slate-50 border border-slate-200 flex items-center gap-3">
-      <i class="fas fa-file-alt text-slate-500 text-lg"></i>
-      <div><div class="text-2xl font-extrabold text-slate-600">${sp.totalWords||0}</div><div class="text-xs font-semibold text-slate-600">검사 어절 수</div></div>
-    </div>
-    <div class="rounded-xl p-3.5 bg-blue-50 border border-blue-200 flex items-center gap-3">
-      <i class="fas fa-search text-blue-500 text-lg"></i>
-      <div><div class="text-sm font-bold ${engineColor}">${engineLabel}</div><div class="text-xs font-semibold text-blue-600">검사 엔진</div></div>
-    </div>
-  `
-  renderSpellingList(sp.issues || [])
-}
-
-function renderSpellingList(issues) {
-  const list = document.getElementById('spellingList')
-  const empty = document.getElementById('noSpelling')
-  if (!issues || issues.length === 0) { list.innerHTML=''; empty.classList.remove('hidden'); return }
-  empty.classList.add('hidden')
-
-  const TYPE_LABEL = {
-    spell:     { label: '철자 오류', color: 'bg-red-100 text-red-700' },
-    spacing:   { label: '띄어쓰기', color: 'bg-amber-100 text-amber-700' },
-    ambiguous: { label: '문맥 오류', color: 'bg-orange-100 text-orange-700' },
-    stat:      { label: '통계 교정', color: 'bg-blue-100 text-blue-700' },
-    korean:    { label: '한글',      color: 'bg-violet-100 text-violet-700' },
-    unknown:   { label: '기타',      color: 'bg-slate-100 text-slate-600' },
-  }
-
-  list.innerHTML = issues.map((issue, i) => {
-    const tc = TYPE_LABEL[issue.type] || TYPE_LABEL.unknown
-    const lineInfo = issue.line ? `줄 ${issue.line}${issue.col ? ', 열 '+issue.col : ''}` : null
-    const pageUrlShort = issue.pageUrl ? issue.pageUrl.replace(/^https?:\/\//, '').substring(0, 60) : null
-
-    return `<details class="mb-2.5 rounded-xl border-l-4 spell-ko bg-white border border-slate-100 shadow-sm overflow-hidden group">
-      <summary class="flex items-center justify-between p-3.5 hover:bg-slate-50 transition-colors cursor-pointer">
-        <div class="flex items-center gap-2.5 flex-1 min-w-0">
-          <span class="text-slate-400 font-mono text-xs w-5 shrink-0">${String(i+1).padStart(2,'0')}</span>
-          <i class="fas fa-spell-check text-violet-500 shrink-0 text-sm"></i>
-          <div class="min-w-0">
-            <p class="font-semibold text-slate-800 text-sm">
-              <span class="text-red-600">"${esc(issue.word)}"</span>
-              <i class="fas fa-arrow-right text-slate-300 mx-1 text-xs"></i>
-              <span class="text-emerald-600">"${esc(issue.suggestion)}"</span>
-            </p>
-            <div class="flex items-center gap-2 mt-0.5 flex-wrap">
-              ${lineInfo ? `<span class="text-xs text-slate-400 font-mono"><i class="fas fa-map-marker-alt mr-0.5 text-violet-400"></i>${lineInfo}</span>` : ''}
-              ${pageUrlShort ? `<span class="text-xs text-slate-400 truncate max-w-xs" title="${esc(issue.pageUrl)}"><i class="fas fa-link mr-0.5"></i>${esc(pageUrlShort)}</span>` : ''}
-            </div>
-          </div>
+  el.innerHTML = filtered.map(v => {
+    const cfg = IMPACT_CFG[v.impact] || IMPACT_CFG.minor
+    const nodes = (v.nodes||[]).slice(0, 3).map(n => `
+      <div class="mt-2 p-2 bg-slate-50 rounded-lg border border-slate-200">
+        <code class="node-html text-xs text-slate-700 break-all">${esc(n.html||'')}</code>
+        ${n.failureSummary ? `<p class="text-xs text-red-600 mt-1">${esc(n.failureSummary)}</p>` : ''}
+        ${n.line ? `<span class="text-xs text-slate-400">Line ${n.line}</span>` : ''}
+      </div>`).join('')
+    return `
+      <details class="border-l-4 impact-${v.impact} bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
+        <summary class="flex items-center gap-2 p-3 hover:bg-slate-50 transition">
+          <span class="badge-pill ${cfg.bg} ${cfg.text} shrink-0">${cfg.label}</span>
+          <span class="font-semibold text-sm text-slate-800 flex-1 min-w-0 truncate">${esc(v.help||v.id)}</span>
+          <span class="text-xs text-slate-400 shrink-0">${v.nodes?.length||0}건</span>
+          <i class="fas fa-chevron-down text-slate-400 text-xs chev shrink-0"></i>
+        </summary>
+        <div class="p-3 pt-0 border-t border-slate-100">
+          <p class="text-xs text-slate-600 mb-2">${esc(v.description||'')}</p>
+          <a href="${esc(v.helpUrl||'')}" target="_blank" class="text-xs text-blue-500 hover:underline mb-2 inline-block">
+            <i class="fas fa-external-link-alt mr-1"></i>${esc(v.id)}
+          </a>
+          ${nodes}
         </div>
-        <div class="flex items-center gap-1.5 shrink-0 ml-2">
-          <span class="badge-pill ${tc.color} text-xs">${tc.label}</span>
-          <i class="fas fa-chevron-down text-slate-400 text-xs chev"></i>
-        </div>
-      </summary>
-      <div class="px-4 pb-4 pt-3 border-t border-slate-100 space-y-2">
-        ${issue.desc ? `<p class="text-xs text-slate-500"><i class="fas fa-info-circle mr-1 text-blue-400"></i>${esc(issue.desc)}</p>` : ''}
-        ${issue.context ? `
-        <div>
-          <p class="text-xs text-slate-500 mb-1">문맥:</p>
-          <div class="bg-violet-50 rounded-lg px-3 py-1.5 font-mono text-xs text-slate-700 border border-violet-100 break-all">
-            ${esc(issue.context).replace(esc(issue.word), `<mark class="bg-red-200 text-red-800 rounded px-0.5">${esc(issue.word)}</mark>`)}
-          </div>
-        </div>` : ''}
-        ${issue.pageUrl ? `
-        <div class="flex items-center gap-1.5 text-xs text-slate-400">
-          <i class="fas fa-globe text-blue-400"></i>
-          <a href="${esc(issue.pageUrl)}" target="_blank" class="hover:text-blue-600 underline truncate">${esc(issue.pageUrl)}</a>
-        </div>` : ''}
-        ${issue.line ? `
-        <div class="text-xs text-slate-400">
-          <i class="fas fa-code text-violet-400 mr-1"></i>위치: 줄 ${issue.line}${issue.col ? ', 열 '+issue.col : ''}
-        </div>` : ''}
-      </div>
-    </details>`
+      </details>`
   }).join('')
 }
 
-// ── 링크 렌더 ──────────────────────────────
-function renderLinks(lk) {
-  if (!lk) {
-    document.getElementById('linksNotRun').classList.remove('hidden')
-    document.getElementById('linksList').innerHTML = ''
-    document.getElementById('linkSummaryBars').innerHTML = ''
-    return
-  }
-  document.getElementById('linksNotRun').classList.add('hidden')
-
-  const engineLabel = lk.engine === 'w3c-checklink'
-    ? '<span class="text-xs bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded font-semibold ml-1"><i class="fas fa-globe mr-0.5"></i>W3C Link Checker</span>'
-    : '<span class="text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-semibold ml-1">내장 검사</span>'
-
-  document.getElementById('linkSummaryBars').innerHTML = `
-    <div class="rounded-xl p-3.5 bg-red-50 border border-red-200 flex items-center gap-3">
-      <i class="fas fa-times-circle text-red-500 text-lg"></i>
-      <div><div class="text-2xl font-extrabold text-red-600">${lk.dead?.length||0}</div><div class="text-xs font-semibold text-red-700">데드링크</div></div>
-    </div>
-    <div class="rounded-xl p-3.5 bg-amber-50 border border-amber-200 flex items-center gap-3">
-      <i class="fas fa-share text-amber-500 text-lg"></i>
-      <div><div class="text-2xl font-extrabold text-amber-600">${lk.redirects?.length||0}</div><div class="text-xs font-semibold text-amber-700">리다이렉트</div></div>
-    </div>
-    <div class="rounded-xl p-3.5 bg-green-50 border border-green-200 flex items-center gap-3">
-      <i class="fas fa-check-circle text-green-500 text-lg"></i>
-      <div><div class="text-2xl font-extrabold text-green-600">${lk.live||0}</div><div class="text-xs font-semibold text-green-700">정상 링크</div></div>
-    </div>
-    <div class="rounded-xl p-3.5 bg-teal-50 border border-teal-200 flex items-center gap-3">
-      <i class="fas fa-link text-teal-400 text-lg"></i>
-      <div><div class="text-2xl font-extrabold text-teal-600">${lk.total||0}</div><div class="text-xs font-semibold text-teal-600">전체 검사${engineLabel}</div></div>
-    </div>
-  `
-  filterLinks('dead')
-}
-
-function renderLinksList(filter) {
-  const lk = scanResult?.links
-  if (!lk) return
-  const list = document.getElementById('linksList')
-  const empty = document.getElementById('noLinks')
-  let items = []
-  if (filter === 'dead') items = lk.dead || []
-  else if (filter === 'redirect') items = lk.redirects || []
-  else items = [...(lk.dead||[]), ...(lk.redirects||[])]
-
-  if (items.length === 0) {
-    list.innerHTML = ''
-    if (filter === 'dead') {
-      empty.classList.remove('hidden')
+function filterViolations(filter) {
+  document.querySelectorAll('#filterBtns .filter-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.filter === filter)
+    if (b.dataset.filter === filter) {
+      b.classList.add('bg-slate-800', 'text-white')
+      b.classList.remove('bg-red-100','text-red-700','bg-orange-100','text-orange-700')
     } else {
-      empty.classList.add('hidden')
-      list.innerHTML = `<div class="text-center py-8 text-slate-400 text-sm">${filter === 'redirect' ? '리다이렉트 링크가 없습니다.' : '표시할 항목이 없습니다.'}</div>`
+      b.classList.remove('bg-slate-800', 'text-white')
     }
-    return
-  }
-  empty.classList.add('hidden')
-
-  list.innerHTML = items.map((link, i) => {
-    const isDead = !link.ok || link.status >= 400 || link.error
-    const statusBg = isDead ? 'bg-red-500' : 'bg-amber-500'
-    const borderClass = isDead ? 'link-dead' : 'link-redirect'
-    const statusTxt = link.error ? '오류' : (link.status || '?')
-    return `<div class="mb-2.5 rounded-xl border-l-4 ${borderClass} bg-white border border-slate-100 shadow-sm p-3.5">
-      <div class="flex items-start justify-between gap-2 mb-1">
-        <code class="text-xs text-slate-700 break-all flex-1 leading-relaxed">${esc(link.url)}</code>
-        <span class="badge-pill ${statusBg} text-white shrink-0">${statusTxt}</span>
-      </div>
-      ${link.text ? `<div class="text-xs text-slate-500 mb-1">텍스트: "${esc(link.text)}"</div>` : ''}
-      ${link.error ? `<div class="text-xs text-red-500 flex items-center gap-1"><i class="fas fa-exclamation-triangle"></i> ${esc(link.error)}</div>` : ''}
-      ${link.redirectUrl ? `<div class="text-xs text-amber-600 mt-1"><i class="fas fa-arrow-right mr-1"></i>→ <code class="break-all">${esc(link.redirectUrl)}</code></div>` : ''}
-      <div class="flex flex-wrap gap-3 mt-1.5 text-xs text-slate-400">
-        ${link.line ? `<span class="font-mono"><i class="fas fa-code text-teal-400 mr-1"></i>줄 ${link.line}</span>` : ''}
-        ${link.source ? `<a href="${esc(link.source)}" target="_blank" class="hover:text-blue-500 underline truncate max-w-xs"><i class="fas fa-globe mr-1"></i>${esc(link.source.replace(/^https?:\/\//,'').substring(0,50))}</a>` : ''}
-      </div>
-    </div>`
-  }).join('')
+  })
+  if (scanResult) renderViolations(scanResult.violations || [], filter)
 }
 
-// ── W3C 렌더 ───────────────────────────────
-function renderW3C(w3c) {
-  const notRun   = document.getElementById('w3cNotRun')
-  const noErrors = document.getElementById('noW3CErrors')
-  const errList  = document.getElementById('w3cErrorsList')
-  const warnSec  = document.getElementById('w3cWarningSection')
-  const warnList = document.getElementById('w3cWarningsList')
-  const info     = document.getElementById('w3cInfo')
-  const summBars = document.getElementById('w3cSummaryBars')
-
-  if (!w3c || !w3c.checkedAt) {
-    notRun.classList.remove('hidden')
-    noErrors.classList.add('hidden')
-    errList.innerHTML = ''
-    warnSec.classList.add('hidden')
-    summBars.innerHTML = ''
-    info.classList.add('hidden')
+function renderSpelling(sp) {
+  const notRun = document.getElementById('spellNotRun')
+  const res    = document.getElementById('spellResult')
+  if (!sp?.checkedAt) { notRun.classList.remove('hidden'); res.classList.add('hidden'); return }
+  notRun.classList.add('hidden'); res.classList.remove('hidden')
+  const issues = sp.issues || []
+  if (!issues.length) {
+    res.innerHTML = `<div class="text-center py-8 text-green-600"><i class="fas fa-check-circle text-3xl mb-2 block"></i><p class="font-semibold">오탈자 없음</p></div>`
     return
   }
+  res.innerHTML = issues.map(iss => `
+    <div class="spell-ko border-l-4 border border-slate-200 rounded-lg p-3 mb-2 bg-white shadow-sm">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="badge-pill bg-purple-100 text-purple-700">${esc(iss.type||'오탈자')}</span>
+        <span class="font-bold text-red-600">${esc(iss.token||iss.original||'')}</span>
+        ${iss.suggestions?.length ? `<span class="text-slate-400 text-xs">→</span><span class="text-green-600 font-semibold text-sm">${esc(iss.suggestions[0])}</span>` : ''}
+      </div>
+      ${iss.context ? `<p class="text-xs text-slate-500 truncate">${esc(iss.context)}</p>` : ''}
+    </div>`).join('')
+}
 
-  notRun.classList.add('hidden')
-  info.classList.remove('hidden')
+function renderLinks(lk) {
+  const notRun = document.getElementById('linksNotRun')
+  const res    = document.getElementById('linksResult')
+  if (!lk?.checkedAt) { notRun.classList.remove('hidden'); res.classList.add('hidden'); return }
+  notRun.classList.add('hidden'); res.classList.remove('hidden')
+  const dead = lk.dead || []
+  const redirects = lk.redirects || []
+  if (!dead.length && !redirects.length) {
+    res.innerHTML = `<div class="text-center py-8 text-green-600"><i class="fas fa-check-circle text-3xl mb-2 block"></i><p class="font-semibold">데드링크 없음</p></div>`
+    return
+  }
+  const deadHtml = dead.map(l => `
+    <div class="link-dead border-l-4 border border-slate-200 rounded-lg p-3 mb-2 bg-white">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="badge-pill bg-red-100 text-red-700">데드링크 ${l.status||'?'}</span>
+        <span class="text-xs text-slate-600 truncate flex-1">${esc(l.url||'')}</span>
+      </div>
+      ${l.error ? `<p class="text-xs text-red-500">${esc(l.error)}</p>` : ''}
+    </div>`).join('')
+  const redHtml = redirects.slice(0,20).map(l => `
+    <div class="link-redirect border-l-4 border border-slate-200 rounded-lg p-3 mb-2 bg-white">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="badge-pill bg-yellow-100 text-yellow-700">리다이렉트 ${l.status||''}</span>
+        <span class="text-xs text-slate-600 truncate flex-1">${esc(l.url||'')}</span>
+      </div>
+    </div>`).join('')
+  res.innerHTML = `
+    <div class="flex gap-3 mb-4 text-xs">
+      <span class="bg-red-100 text-red-700 px-2 py-1 rounded-lg font-semibold">데드링크 ${dead.length}건</span>
+      <span class="bg-yellow-100 text-yellow-700 px-2 py-1 rounded-lg font-semibold">리다이렉트 ${redirects.length}건</span>
+      <span class="bg-green-100 text-green-700 px-2 py-1 rounded-lg font-semibold">정상 ${lk.live||0}건</span>
+    </div>
+    ${deadHtml}${redHtml}`
+}
+
+function renderW3C(w3c) {
+  const notRun = document.getElementById('w3cNotRun')
+  const bars   = document.getElementById('w3cSummaryBars')
+  const noErr  = document.getElementById('noW3CErrors')
+  const errList= document.getElementById('w3cErrorsList')
+  const warnSec= document.getElementById('w3cWarningSection')
+  const info   = document.getElementById('w3cInfo')
+
+  if (!w3c?.checkedAt) {
+    notRun.classList.remove('hidden')
+    bars.classList.add('hidden'); noErr.classList.add('hidden')
+    errList.innerHTML = ''; warnSec.classList.add('hidden'); info.classList.add('hidden')
+    return
+  }
+  notRun.classList.add('hidden'); bars.classList.remove('hidden'); info.classList.remove('hidden')
   document.getElementById('w3cCheckedAt').textContent = new Date(w3c.checkedAt).toLocaleString('ko-KR')
 
-  // KPI 바
-  summBars.innerHTML = `
-    <div class="rounded-xl p-3.5 ${w3c.errorCount>0?'bg-red-50 border border-red-200':'bg-green-50 border border-green-200'} flex items-center gap-3">
-      <i class="fas fa-times-circle ${w3c.errorCount>0?'text-red-500':'text-green-500'} text-lg"></i>
-      <div>
-        <div class="text-2xl font-extrabold ${w3c.errorCount>0?'text-red-600':'text-green-600'}">${w3c.errorCount||0}</div>
-        <div class="text-xs font-semibold ${w3c.errorCount>0?'text-red-700':'text-green-700'}">오류</div>
-      </div>
+  const ec = w3c.errorCount || 0
+  const wc = w3c.warningCount || 0
+  bars.innerHTML = `
+    <div class="rounded-xl p-3 ${ec>0?'bg-red-50 border-red-200':'bg-green-50 border-green-200'} border flex items-center gap-2">
+      <i class="fas fa-times-circle ${ec>0?'text-red-500':'text-green-500'}"></i>
+      <div><div class="text-xl font-black ${ec>0?'text-red-600':'text-green-600'}">${ec}</div><div class="text-xs ${ec>0?'text-red-700':'text-green-700'}">오류</div></div>
     </div>
-    <div class="rounded-xl p-3.5 ${w3c.warningCount>0?'bg-amber-50 border border-amber-200':'bg-green-50 border border-green-200'} flex items-center gap-3">
-      <i class="fas fa-exclamation-triangle ${w3c.warningCount>0?'text-amber-500':'text-green-500'} text-lg"></i>
-      <div>
-        <div class="text-2xl font-extrabold ${w3c.warningCount>0?'text-amber-600':'text-green-600'}">${w3c.warningCount||0}</div>
-        <div class="text-xs font-semibold ${w3c.warningCount>0?'text-amber-700':'text-green-700'}">경고</div>
-      </div>
+    <div class="rounded-xl p-3 ${wc>0?'bg-yellow-50 border-yellow-200':'bg-green-50 border-green-200'} border flex items-center gap-2">
+      <i class="fas fa-exclamation-triangle ${wc>0?'text-yellow-500':'text-green-500'}"></i>
+      <div><div class="text-xl font-black ${wc>0?'text-yellow-600':'text-green-600'}">${wc}</div><div class="text-xs ${wc>0?'text-yellow-700':'text-green-700'}">경고</div></div>
     </div>
-    ${(w3c.fatalCount||0)>0?`
-    <div class="rounded-xl p-3.5 bg-red-50 border border-red-300 flex items-center gap-3">
-      <i class="fas fa-skull text-red-600 text-lg"></i>
-      <div>
-        <div class="text-2xl font-extrabold text-red-700">${w3c.fatalCount}</div>
-        <div class="text-xs font-semibold text-red-700">치명적 오류</div>
-      </div>
-    </div>`:''}
-    <div class="rounded-xl p-3.5 ${w3c.valid===true?'bg-green-50 border border-green-200':w3c.valid===false?'bg-red-50 border border-red-200':'bg-slate-50 border border-slate-200'} flex items-center gap-3">
-      <i class="fas ${w3c.valid===true?'fa-check-circle text-green-500':w3c.valid===false?'fa-times-circle text-red-500':'fa-question-circle text-slate-400'} text-lg"></i>
-      <div>
-        <div class="text-lg font-extrabold ${w3c.valid===true?'text-green-600':w3c.valid===false?'text-red-600':'text-slate-500'}">${w3c.valid===true?'유효':'무효'}</div>
-        <div class="text-xs font-semibold ${w3c.valid===true?'text-green-700':w3c.valid===false?'text-red-700':'text-slate-500'}">유효성</div>
-      </div>
-    </div>
-  `
+    <div class="rounded-xl p-3 ${w3c.valid===false?'bg-red-50 border-red-200':'bg-green-50 border-green-200'} border flex items-center gap-2">
+      <i class="fas fa-${w3c.valid===false?'times':'check'}-circle ${w3c.valid===false?'text-red-500':'text-green-500'}"></i>
+      <div><div class="text-sm font-black ${w3c.valid===false?'text-red-600':'text-green-600'}">${w3c.valid===false?'무효':'유효'}</div><div class="text-xs text-slate-500">마크업</div></div>
+    </div>`
 
-  // 오류 목록
-  if (!w3c.errors || w3c.errors.length === 0) {
-    errList.innerHTML = ''
-    noErrors.classList.remove('hidden')
-  } else {
-    noErrors.classList.add('hidden')
-    errList.innerHTML = w3c.errors.map((e, i) => `
-      <details class="mb-2.5 rounded-xl border-l-4 border-red-400 bg-white border border-slate-100 shadow-sm overflow-hidden">
-        <summary class="flex items-center justify-between p-3.5 hover:bg-slate-50 transition-colors cursor-pointer">
-          <div class="flex items-center gap-2.5 flex-1 min-w-0">
-            <span class="text-slate-400 font-mono text-xs w-5 shrink-0">${String(i+1).padStart(2,'0')}</span>
-            <i class="fas fa-times-circle text-red-500 shrink-0 text-sm"></i>
-            <div class="min-w-0">
-              <p class="font-semibold text-slate-800 text-sm truncate">${esc(e.message)}</p>
-              ${e.lastLine ? `<p class="text-xs text-slate-400 font-mono">Line ${e.lastLine}${e.lastColumn?', Col '+e.lastColumn:''}</p>` : ''}
-            </div>
-          </div>
-          <div class="flex items-center gap-1.5 shrink-0 ml-2">
-            ${e.subType==='fatal'?'<span class="badge-pill bg-red-100 text-red-700">치명적</span>':''}
-            <i class="fas fa-chevron-down text-slate-400 text-xs chev"></i>
-          </div>
-        </summary>
-        ${e.extract ? `
-        <div class="px-4 pb-4 pt-3 border-t border-slate-100">
-          <p class="text-xs text-slate-500 mb-2">문제 코드:</p>
-          <div class="bg-red-50 rounded-lg p-2 font-mono text-xs text-red-800 break-all border border-red-100">${esc(e.extract)}</div>
-        </div>` : ''}
-      </details>`).join('')
-    if (w3c.errors.length > 0) {
-      errList.innerHTML += `<p class="text-xs text-slate-400 text-center py-2">총 ${w3c.errors.length}건의 오류 · W3C validator.w3.org/nu 기준</p>`
-    }
-  }
-
-  // 경고 목록
-  if (w3c.warnings && w3c.warnings.length > 0) {
-    warnSec.classList.remove('hidden')
-    document.getElementById('badge-w3c-warn').textContent = w3c.warnings.length
-    warnList.innerHTML = w3c.warnings.map((w, i) => `
-      <div class="mb-2 rounded-xl border-l-4 border-amber-400 bg-white border border-slate-100 shadow-sm p-3.5">
-        <div class="flex items-center gap-2 mb-1">
-          <span class="text-slate-400 font-mono text-xs">${String(i+1).padStart(2,'0')}</span>
-          <i class="fas fa-exclamation-triangle text-amber-500 text-sm"></i>
-          <p class="font-semibold text-slate-800 text-sm flex-1">${esc(w.message)}</p>
-          ${w.lastLine ? `<span class="text-xs text-slate-400 font-mono shrink-0">L${w.lastLine}</span>` : ''}
-        </div>
-        ${w.extract ? `<div class="bg-amber-50 rounded px-2 py-1 font-mono text-xs text-amber-800 break-all mt-1">${esc(w.extract)}</div>` : ''}
+  if (!ec) { noErr.classList.remove('hidden'); errList.innerHTML = '' }
+  else {
+    noErr.classList.add('hidden')
+    errList.innerHTML = (w3c.errors||[]).slice(0,30).map(e => `
+      <div class="border-l-4 border-red-400 border border-slate-200 rounded-lg p-3 mb-2 bg-white text-xs">
+        <span class="badge-pill bg-red-100 text-red-700 mr-2">${esc(e.type||'오류')}</span>
+        ${e.line ? `<span class="text-slate-400 mr-2">Line ${e.line}</span>` : ''}
+        <span class="text-slate-700">${esc(e.message||'')}</span>
       </div>`).join('')
-  } else {
-    warnSec.classList.add('hidden')
   }
+  if (wc > 0) {
+    warnSec.classList.remove('hidden')
+    document.getElementById('badge-w3c-warn2').textContent = wc
+    document.getElementById('w3cWarningList').innerHTML = (w3c.warnings||[]).slice(0,20).map(w => `
+      <div class="border-l-4 border-yellow-400 border border-slate-200 rounded-lg p-3 mb-1 bg-white text-xs">
+        <span class="text-slate-700">${esc(w.message||'')}</span>
+      </div>`).join('')
+  } else warnSec.classList.add('hidden')
 }
 
-// ── KRDS 준수 검사 렌더링 ────────────────────
 function renderKRDS(krds) {
-  const notRun    = document.getElementById('krdsNotRun')
-  const runResult = document.getElementById('krdsRunResult')
-  const summBars  = document.getElementById('krdsSummaryBars')
-  const itemList  = document.getElementById('krdsItemList')
-
-  if (!krds || !krds.checkedAt) {
-    notRun.classList.remove('hidden')
-    runResult.classList.add('hidden')
-    return
-  }
-
-  notRun.classList.add('hidden')
-  runResult.classList.remove('hidden')
+  const notRun = document.getElementById('krdsNotRun')
+  const runRes = document.getElementById('krdsRunResult')
+  if (!krds?.checkedAt) { notRun.classList.remove('hidden'); runRes.classList.add('hidden'); return }
+  notRun.classList.add('hidden'); runRes.classList.remove('hidden')
   document.getElementById('krdsCheckedAt').textContent = new Date(krds.checkedAt).toLocaleString('ko-KR')
 
-  const score = krds.score || 0
-  const scColor = score >= 80 ? '#16a34a' : score >= 60 ? '#d97706' : '#dc2626'
-  const scBg    = score >= 80 ? 'bg-green-50 border-green-200' : score >= 60 ? 'bg-yellow-50 border-yellow-200' : 'bg-red-50 border-red-200'
-  const scTxt   = score >= 80 ? 'text-green-600' : score >= 60 ? 'text-yellow-600' : 'text-red-600'
+  const sc = krds.score || 0
+  const scCol = sc>=80?'text-green-600':sc>=60?'text-yellow-600':'text-red-600'
+  const scBg  = sc>=80?'bg-green-50 border-green-200':sc>=60?'bg-yellow-50 border-yellow-200':'bg-red-50 border-red-200'
+  const mp=krds.mandatory?.passed||0, mt=krds.mandatory?.total||0
+  const rp=krds.recommended?.passed||0, rt=krds.recommended?.total||0
+  const failed=krds.failed||0
 
-  const mandTotal  = krds.mandatory?.total  || 0
-  const mandPassed = krds.mandatory?.passed || 0
-  const recTotal   = krds.recommended?.total  || 0
-  const recPassed  = krds.recommended?.passed || 0
-  const failedCnt  = krds.failed || 0
-
-  // ─── KPI 바
-  summBars.innerHTML = `
+  document.getElementById('krdsSummaryBars').innerHTML = `
     <div class="rounded-xl p-3.5 ${scBg} border flex items-center gap-3">
-      <i class="fas fa-flag ${scTxt} text-lg"></i>
-      <div>
-        <div class="text-3xl font-extrabold ${scTxt}">${score}%</div>
-        <div class="text-xs font-semibold ${scTxt}">KRDS 준수율</div>
-      </div>
+      <i class="fas fa-flag ${scCol} text-lg"></i>
+      <div><div class="text-3xl font-extrabold ${scCol}">${sc}%</div><div class="text-xs font-semibold ${scCol}">KRDS 준수율</div></div>
     </div>
-    <div class="rounded-xl p-3.5 ${mandPassed===mandTotal?'bg-green-50 border-green-200':'bg-red-50 border-red-200'} border flex items-center gap-3">
-      <i class="fas fa-exclamation-circle ${mandPassed===mandTotal?'text-green-500':'text-red-500'} text-lg"></i>
-      <div>
-        <div class="text-2xl font-extrabold ${mandPassed===mandTotal?'text-green-600':'text-red-600'}">${mandPassed}/${mandTotal}</div>
-        <div class="text-xs font-semibold ${mandPassed===mandTotal?'text-green-700':'text-red-700'}">필수 항목</div>
-      </div>
+    <div class="rounded-xl p-3.5 ${mp===mt?'bg-green-50 border-green-200':'bg-red-50 border-red-200'} border flex items-center gap-3">
+      <i class="fas fa-exclamation-circle ${mp===mt?'text-green-500':'text-red-500'} text-lg"></i>
+      <div><div class="text-2xl font-extrabold ${mp===mt?'text-green-600':'text-red-600'}">${mp}/${mt}</div><div class="text-xs font-semibold ${mp===mt?'text-green-700':'text-red-700'}">필수 항목</div></div>
     </div>
-    <div class="rounded-xl p-3.5 ${recPassed===recTotal?'bg-green-50 border-green-200':'bg-blue-50 border-blue-200'} border flex items-center gap-3">
-      <i class="fas fa-check-circle ${recPassed===recTotal?'text-green-500':'text-blue-500'} text-lg"></i>
-      <div>
-        <div class="text-2xl font-extrabold ${recPassed===recTotal?'text-green-600':'text-blue-600'}">${recPassed}/${recTotal}</div>
-        <div class="text-xs font-semibold ${recPassed===recTotal?'text-green-700':'text-blue-700'}">권장 항목</div>
-      </div>
-    </div>
-    ${failedCnt > 0 ? `
-    <div class="rounded-xl p-3.5 bg-red-50 border border-red-200 flex items-center gap-3">
-      <i class="fas fa-times-circle text-red-500 text-lg"></i>
-      <div>
-        <div class="text-2xl font-extrabold text-red-600">${failedCnt}</div>
-        <div class="text-xs font-semibold text-red-700">미준수 항목</div>
-      </div>
-    </div>` : `
-    <div class="rounded-xl p-3.5 bg-green-50 border border-green-200 flex items-center gap-3">
-      <i class="fas fa-check-double text-green-500 text-lg"></i>
-      <div>
-        <div class="text-lg font-extrabold text-green-600">전체 준수</div>
-        <div class="text-xs font-semibold text-green-700">모든 항목 통과</div>
-      </div>
-    </div>`}
-  `
+    <div class="rounded-xl p-3.5 ${rp===rt?'bg-green-50 border-green-200':'bg-blue-50 border-blue-200'} border flex items-center gap-3">
+      <i class="fas fa-check-circle ${rp===rt?'text-green-500':'text-blue-500'} text-lg"></i>
+      <div><div class="text-2xl font-extrabold ${rp===rt?'text-green-600':'text-blue-600'}">${rp}/${rt}</div><div class="text-xs font-semibold ${rp===rt?'text-green-700':'text-blue-700'}">권장 항목</div></div>
+    </div>`
 
-  // ─── 카테고리별 항목 목록
-  if (!krds.items || krds.items.length === 0) {
-    itemList.innerHTML = '<p class="text-slate-400 text-sm text-center py-8">검사 항목 없음</p>'
-    return
-  }
-
-  // 카테고리 그룹핑
   const byCategory = {}
-  for (const item of krds.items) {
-    if (!byCategory[item.category]) byCategory[item.category] = []
+  for (const item of krds.items||[]) {
+    if (!byCategory[item.category]) byCategory[item.category]=[]
     byCategory[item.category].push(item)
   }
-
-  itemList.innerHTML = Object.entries(byCategory).map(([cat, items]) => {
-    const catFailed = items.filter(it => !it.passed)
-    const catIcon  = catFailed.length > 0 ? '✗' : '✓'
-    const catColor = catFailed.length > 0 ? 'text-red-500' : 'text-green-600'
-
-    const itemsHtml = items.map(item => {
-      const lvlBadge = item.level === '필수'
-        ? '<span class="shrink-0 text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-semibold">필수</span>'
-        : '<span class="shrink-0 text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-semibold">권장</span>'
-      const passIcon = item.passed
-        ? '<span class="shrink-0 text-green-600 font-bold text-xs">✓</span>'
-        : '<span class="shrink-0 text-red-600 font-bold text-xs">✗</span>'
-      const borderCls = item.passed
-        ? 'border-l-4 border-green-300 bg-green-50'
-        : item.level === '필수' ? 'border-l-4 border-red-400 bg-red-50' : 'border-l-4 border-yellow-400 bg-yellow-50'
-
-      return `
-        <div class="${borderCls} mb-1.5 p-2.5 rounded-r-lg text-xs flex items-start gap-2">
-          ${passIcon}
-          ${lvlBadge}
-          <div class="flex-1 min-w-0">
-            <span class="font-semibold text-slate-800">${esc(item.name)}</span>
-            <span class="text-slate-500 ml-1">— ${esc(item.detail)}</span>
-            ${!item.passed && item.recommend ? `<div class="text-blue-600 mt-0.5 italic">💡 ${esc(item.recommend)}</div>` : ''}
-          </div>
-        </div>`
-    }).join('')
-
+  document.getElementById('krdsItemList').innerHTML = Object.entries(byCategory).map(([cat,items]) => {
+    const catFailed = items.filter(i=>!i.passed)
     return `
-      <details class="mb-3 rounded-xl border border-slate-200 overflow-hidden shadow-sm" ${catFailed.length > 0 ? 'open' : ''}>
-        <summary class="flex items-center justify-between p-3.5 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">
+      <details class="mb-3 rounded-xl border border-slate-200 overflow-hidden shadow-sm" ${catFailed.length>0?'open':''}>
+        <summary class="flex items-center justify-between p-3.5 bg-slate-50 hover:bg-slate-100 transition cursor-pointer">
           <div class="flex items-center gap-2">
             <span class="font-semibold text-slate-700 text-sm">${esc(cat)}</span>
             <span class="badge-pill bg-slate-200 text-slate-600">${items.length}개</span>
           </div>
           <div class="flex items-center gap-2">
-            <span class="${catColor} font-bold text-sm">${catIcon} ${items.length - catFailed.length}/${items.length}</span>
+            <span class="${catFailed.length>0?'text-red-500':'text-green-600'} font-bold text-sm">
+              ${catFailed.length>0?'✗':'✓'} ${items.length-catFailed.length}/${items.length}
+            </span>
             <i class="fas fa-chevron-down text-slate-400 text-xs chev"></i>
           </div>
         </summary>
         <div class="p-3">
-          ${itemsHtml}
+          ${items.map(item => `
+            <div class="${item.passed?'border-l-4 border-green-300 bg-green-50':item.level==='필수'?'border-l-4 border-red-400 bg-red-50':'border-l-4 border-yellow-400 bg-yellow-50'} mb-1.5 p-2.5 rounded-r-lg text-xs flex items-start gap-2">
+              <span class="shrink-0 ${item.passed?'text-green-600':'text-red-600'} font-bold">${item.passed?'✓':'✗'}</span>
+              <span class="shrink-0 text-xs ${item.level==='필수'?'bg-red-100 text-red-700':'bg-blue-100 text-blue-700'} px-1.5 py-0.5 rounded font-semibold">${esc(item.level)}</span>
+              <div class="flex-1 min-w-0">
+                <span class="font-semibold text-slate-800">${esc(item.name)}</span>
+                <span class="text-slate-500 ml-1">— ${esc(item.detail)}</span>
+                ${!item.passed&&item.recommend?`<div class="text-blue-600 mt-0.5 italic">💡 ${esc(item.recommend)}</div>`:''}
+              </div>
+            </div>`).join('')}
         </div>
       </details>`
   }).join('')
-
-  if (failedCnt === 0) {
-    itemList.innerHTML += `<div class="mt-4 bg-green-50 border border-green-200 rounded-xl p-4 text-center text-green-700 font-semibold text-sm">✅ 모든 KRDS 항목 준수!</div>`
-  }
 }
 
-// ── 차트 ───────────────────────────────────
 function renderCharts(data) {
   Object.values(charts).forEach(c => c?.destroy())
   charts = {}
-  const ic = data.summary.impactCounts
+  const ic = data.summary?.impactCounts || {}
   const sp = data.spelling || {}
   const lk = data.links || {}
 
-  charts.impact = new Chart(document.getElementById('impactChart'), {
+  const ctx1 = document.getElementById('chartViolations')?.getContext('2d')
+  if (ctx1) charts.v = new Chart(ctx1, {
     type: 'doughnut',
-    data: { labels:['치명적','심각','보통','경미'], datasets:[{ data:[ic.critical||0,ic.serious||0,ic.moderate||0,ic.minor||0], backgroundColor:['#dc2626','#ea580c','#d97706','#65a30d'], borderWidth:2, borderColor:'#fff' }] },
-    options: { responsive:true, plugins:{ legend:{ position:'bottom', labels:{ font:{ size:11 } } } } }
-  })
-  charts.summary = new Chart(document.getElementById('summaryChart'), {
-    type: 'bar',
-    data: { labels:['위반','통과','검토필요','해당없음'], datasets:[{ data:[data.summary.violations,data.summary.passes,data.summary.incomplete,data.summary.inapplicable], backgroundColor:['#ef4444','#22c55e','#f59e0b','#94a3b8'], borderRadius:6 }] },
-    options: { responsive:true, plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true } } }
-  })
-  charts.spell = new Chart(document.getElementById('spellChart'), {
-    type: 'bar',
     data: {
-      labels: ['오탈자 수', '정상 어절'],
-      datasets: [{ data: [sp.koreanIssues||0, Math.max(0,(sp.totalWords||0)-(sp.koreanIssues||0))], backgroundColor: ['#8b5cf6','#e9d5ff'], borderRadius: 6 }]
+      labels: ['치명적','심각','보통','경미'],
+      datasets: [{ data: [ic.critical||0,ic.serious||0,ic.moderate||0,ic.minor||0], backgroundColor:['#dc2626','#ea580c','#d97706','#65a30d'], borderWidth:2 }]
     },
-    options: { responsive:true, plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true } } }
+    options: { plugins: { legend: { position:'bottom', labels:{ font:{size:11} } }, title: { display:true, text:'접근성 위반 분포' } } }
   })
-  charts.link = new Chart(document.getElementById('linkChart'), {
-    type: 'doughnut',
-    data: { labels:['데드링크','리다이렉트','정상'], datasets:[{ data:[lk.dead?.length||0, lk.redirects?.length||0, lk.live||0], backgroundColor:['#ef4444','#f59e0b','#22c55e'], borderWidth:2, borderColor:'#fff' }] },
-    options: { responsive:true, plugins:{ legend:{ position:'bottom', labels:{ font:{ size:11 } } } } }
-  })
+
+  const ctx2 = document.getElementById('chartSpelling')?.getContext('2d')
+  if (ctx2) {
+    const types = {}
+    ;(sp.issues||[]).forEach(i => { types[i.type||'기타']=(types[i.type||'기타']||0)+1 })
+    charts.s = new Chart(ctx2, {
+      type: 'bar',
+      data: {
+        labels: Object.keys(types).length ? Object.keys(types) : ['데이터 없음'],
+        datasets: [{ label:'오탈자 유형', data: Object.values(types).length ? Object.values(types) : [0], backgroundColor:'#8b5cf6', borderRadius:6 }]
+      },
+      options: { plugins: { legend: { display:false }, title: { display:true, text:'오탈자 유형별 분포' } }, scales: { y: { beginAtZero:true } } }
+    })
+  }
 }
 
-// ══════════════════════════════════════════
-// 탭 전환
-// ══════════════════════════════════════════
+function updateTabBadges(data) {
+  const sum = data.summary || {}
+  document.getElementById('badge-a11y').textContent = sum.violations || 0
+
+  // 탭 표시/숨김
+  const spellTab = document.getElementById('tab-btn-spell')
+  if (data.spelling?.checkedAt) {
+    spellTab.classList.remove('hidden')
+    document.getElementById('badge-spell').textContent = data.spelling.totalIssues || 0
+  }
+  const linksTab = document.getElementById('tab-btn-links')
+  if (data.links?.checkedAt) {
+    linksTab.classList.remove('hidden')
+    const deadCnt = typeof data.links.dead === 'number' ? data.links.dead : (data.links.dead?.length || 0)
+    document.getElementById('badge-links').textContent = deadCnt
+  }
+  const w3cTab = document.getElementById('tab-btn-w3c')
+  if (data.w3c?.checkedAt) {
+    w3cTab.classList.remove('hidden')
+    document.getElementById('badge-w3c-warn').textContent = data.w3c.errorCount || 0
+  }
+  const krdsTab = document.getElementById('tab-btn-krds')
+  if (data.krds?.checkedAt) {
+    krdsTab.classList.remove('hidden')
+    document.getElementById('badge-krds').textContent = data.krds.failed || 0
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  배치(다중) 결과 렌더링 (인라인)
+// ══════════════════════════════════════════════════════
+function renderBatchInline(results, opts) {
+  document.getElementById('batchResultArea').classList.remove('hidden')
+
+  // KPI
+  const total   = results.length
+  const errCnt  = results.filter(r=>r.status==='error').length
+  const avgScore= total>0 ? Math.round(results.reduce((s,r)=>s+(r.score||0),0)/total) : 0
+  const totalVio= results.reduce((s,r)=>s+(r.summary?.violations||0),0)
+  // lightResult: links.dead가 숫자, 일반 결과: links.dead가 배열
+  const getDeadCount = r => typeof r.links?.dead === 'number' ? r.links.dead : (r.links?.dead?.length||0)
+  const totalDead=results.reduce((s,r)=>s+getDeadCount(r),0)
+
+  const scCol = avgScore>=80?'text-green-600':avgScore>=50?'text-yellow-600':'text-red-600'
+  document.getElementById('batchKpiCards').innerHTML = `
+    <div class="card p-4 text-center">
+      <div class="text-2xl font-black text-blue-600">${total}</div>
+      <div class="text-xs text-slate-500 mt-1">검사 페이지</div>
+    </div>
+    <div class="card p-4 text-center">
+      <div class="text-2xl font-black ${scCol}">${avgScore}</div>
+      <div class="text-xs text-slate-500 mt-1">평균 점수</div>
+    </div>
+    <div class="card p-4 text-center">
+      <div class="text-2xl font-black ${totalVio>0?'text-red-600':'text-green-600'}">${totalVio}</div>
+      <div class="text-xs text-slate-500 mt-1">총 위반</div>
+    </div>
+    <div class="card p-4 text-center">
+      <div class="text-2xl font-black ${errCnt>0?'text-red-600':'text-green-600'}">${errCnt}</div>
+      <div class="text-xs text-slate-500 mt-1">오류 페이지</div>
+    </div>`
+
+  // 컬럼 표시/숨김
+  const spellChecked = results.some(r=>r.spelling?.checkedAt)
+  const linksChecked = results.some(r=>r.links?.checkedAt)
+  const w3cChecked   = results.some(r=>r.w3c?.checkedAt)
+  const krdsChecked  = results.some(r=>r.krds?.checkedAt)
+  ;[['th-spell',spellChecked],['th-links',linksChecked],['th-w3c',w3cChecked],['th-krds',krdsChecked]]
+    .forEach(([cls,show]) => document.querySelectorAll('.'+cls).forEach(el => show?el.classList.remove('hidden'):el.classList.add('hidden')))
+
+  // 버튼 활성화
+  document.getElementById('batchDlBtn').disabled = false
+  document.getElementById('batchExcelBtn').disabled = false
+
+  // 테이블
+  document.getElementById('batchTbody').innerHTML = results.map((r,i) => {
+    const sc = r.score !== undefined ? r.score : null
+    const scCol2 = sc===null?'#6b7280':sc>=80?'#16a34a':sc>=50?'#d97706':'#dc2626'
+    const statusBadge = r.status==='error'
+      ? `<span class="badge-pill bg-red-100 text-red-700 cursor-help" title="${esc(r.error||'오류')}">${esc(truncErr(r.error))}</span>`
+      : `<span class="badge-pill bg-green-100 text-green-700">완료</span>`
+    return `
+      <tr class="batch-row border-b border-slate-50 ${r.status==='error'?'error-row':''}">
+        <td class="px-3 py-2.5 text-center text-xs text-slate-400">${i+1}</td>
+        <td class="px-3 py-2.5">
+          <div class="font-semibold text-slate-800 text-xs truncate max-w-xs" title="${esc(r.url||'')}">
+            ${esc(r.pageTitle || r.fileName || '(제목없음)')}
+          </div>
+          <div class="text-xs text-slate-400 truncate max-w-xs">${esc(r.url||r.originalUrl||'')}</div>
+        </td>
+        <td class="px-3 py-2.5 text-center">
+          <span class="font-black text-base" style="color:${scCol2}">${sc!==null?sc:'-'}</span>
+        </td>
+        <td class="px-3 py-2.5 text-center">
+          <span class="font-bold text-sm ${(r.summary?.violations||0)>0?'text-red-600':'text-green-600'}">${r.summary?.violations??'-'}</span>
+        </td>
+        ${spellChecked?`<td class="px-3 py-2.5 text-center th-spell">
+          <span class="text-sm font-bold ${(r.spelling?.totalIssues||0)>0?'text-purple-600':'text-green-600'}">${r.spelling?.totalIssues??'-'}</span>
+        </td>`:''}
+        ${linksChecked?`<td class="px-3 py-2.5 text-center th-links">
+          <span class="text-sm font-bold ${getDeadCount(r)>0?'text-red-600':'text-green-600'}">${getDeadCount(r)}</span>
+        </td>`:''}
+        ${w3cChecked?`<td class="px-3 py-2.5 text-center th-w3c">
+          ${r.w3c?.checkedAt?`<span class="text-xs font-bold ${(r.w3c?.errorCount||0)>0?'text-red-600':'text-green-600'}">${r.w3c?.errorCount||0}</span>`:'<span class="text-slate-300">-</span>'}
+        </td>`:''}
+        ${krdsChecked?`<td class="px-3 py-2.5 text-center th-krds">
+          ${r.krds?`<span class="text-xs font-bold ${(r.krds.score||0)>=80?'text-green-600':'text-yellow-600'}">${r.krds.score||0}%</span>`:'<span class="text-slate-300">-</span>'}
+        </td>`:''}
+        <td class="px-3 py-2.5 text-center">${statusBadge}</td>
+        <td class="px-3 py-2.5 text-center">
+          <button onclick="openBatchEvidence(${i})" class="text-xs bg-blue-100 hover:bg-blue-200 text-blue-700 px-2 py-1 rounded transition">
+            <i class="fas fa-eye"></i>
+          </button>
+        </td>
+      </tr>`
+  }).join('')
+}
+
+function truncErr(msg) {
+  if (!msg) return '오류'
+  if (msg.includes('CONNECTION_RESET')) return '연결끊김'
+  if (msg.includes('timeout') || msg.includes('Timeout')) return '시간초과'
+  if (msg.includes('DNS') || msg.includes('NAME_NOT_RESOLVED')) return 'DNS오류'
+  return '오류'
+}
+
+// ══════════════════════════════════════════════════════
+//  증적 모달 (배치 인라인)
+// ══════════════════════════════════════════════════════
+let batchResults = []
+function openBatchEvidence(idx) {
+  // batchResults는 전역에 저장
+  const data = batchResults[idx]
+  if (!data) return
+  const modal = document.getElementById('evidenceModal')
+  modal.classList.remove('hidden')
+  const sc = data.score || 0
+  const col = sc>=80?'#16a34a':sc>=50?'#d97706':'#dc2626'
+  let html = `
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+      <div class="bg-gray-50 rounded-xl p-4 text-center"><div class="text-3xl font-black" style="color:${col}">${sc}</div><div class="text-xs text-gray-500 mt-1">접근성 점수</div></div>
+      <div class="bg-red-50 rounded-xl p-4 text-center"><div class="text-3xl font-black text-red-600">${data.summary?.violations||0}</div><div class="text-xs text-gray-500 mt-1">위반</div></div>
+      <div class="bg-purple-50 rounded-xl p-4 text-center"><div class="text-3xl font-black text-purple-600">${data.spelling?.totalIssues||0}</div><div class="text-xs text-gray-500 mt-1">오탈자</div></div>
+      <div class="bg-amber-50 rounded-xl p-4 text-center"><div class="text-3xl font-black text-amber-600">${data.links?.dead?.length||0}</div><div class="text-xs text-gray-500 mt-1">데드링크</div></div>
+    </div>
+    <div class="bg-gray-50 rounded-xl p-4 mb-4 text-xs text-gray-600 space-y-1.5">
+      <div><strong>페이지:</strong> <a href="${esc(data.url||'')}" target="_blank" class="text-blue-500 hover:underline">${esc(data.url||data.fileName||'-')}</a></div>
+      <div><strong>제목:</strong> ${esc(data.pageTitle||data.fileName||'-')}</div>
+      <div><strong>검사 일시:</strong> ${data.scannedAt?new Date(data.scannedAt).toLocaleString('ko-KR'):'-'}</div>
+    </div>`
+
+  if (data.status === 'error') {
+    html += `<div class="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-600"><i class="fas fa-exclamation-triangle mr-2"></i>${esc(data.error||'스캔 오류')}</div>`
+  }
+
+  document.getElementById('evidenceContent').innerHTML = html
+}
+
+function closeEvidenceModal() {
+  document.getElementById('evidenceModal').classList.add('hidden')
+}
+
+// ══════════════════════════════════════════════════════
+//  다운로드 (배치)
+// ══════════════════════════════════════════════════════
+async function downloadBatchReport() {
+  if (!batchSession) return
+  window.open(`/api/batch/${batchSession}/report`, '_blank')
+}
+
+async function downloadBatchExcel() {
+  if (!batchSession) return
+  window.open(`/api/batch/${batchSession}/excel`, '_blank')
+}
+
+async function downloadReport() {
+  if (!scanResult) return
+  const res = await fetch('/api/report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(scanResult)
+  })
+  const blob = await res.blob()
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = `report_${Date.now()}.html`
+  a.click()
+}
+
+// ══════════════════════════════════════════════════════
+//  탭 전환
+// ══════════════════════════════════════════════════════
 function switchMainTab(name, btn) {
   document.querySelectorAll('.main-tab-btn').forEach(b => b.classList.remove('active'))
   btn.classList.add('active')
-  ;['accessibility','spelling','links','chart','w3c','krds'].forEach(t => {
-    document.getElementById('tab-'+t)?.classList.add('hidden')
+  ;['a11y','spell','links','chart','w3c','krds'].forEach(t => {
+    const el = document.getElementById(`tab-${t}`)
+    if (el) el.classList.toggle('hidden', t !== name)
   })
-  document.getElementById('tab-'+name)?.classList.remove('hidden')
 }
+
 function switchMainTabByName(name) {
-  const btns = document.querySelectorAll('.main-tab-btn')
-  const tabOrder = ['accessibility','spelling','links','chart','w3c','krds']
-  const idx = tabOrder.indexOf(name)
-  if (idx >= 0 && btns[idx]) switchMainTab(name, btns[idx])
+  const btn = document.getElementById(`tab-btn-${name}`)
+  if (btn && !btn.classList.contains('hidden')) switchMainTab(name, btn)
 }
 
-// ══════════════════════════════════════════
-// 필터
-// ══════════════════════════════════════════
-function filterViolations(impact) {
-  document.querySelectorAll('.vfilter-btn').forEach(b => {
-    const isActive = b.dataset.f === impact
-    b.classList.toggle('bg-slate-800', isActive); b.classList.toggle('text-white', isActive)
-    b.classList.toggle('border-slate-800', isActive)
-  })
-  if (!scanResult) return
-  const filtered = impact === 'all' ? scanResult.violations : scanResult.violations.filter(v => v.impact === impact)
-  renderViolations(filtered)
+// ══════════════════════════════════════════════════════
+//  UI 헬퍼
+// ══════════════════════════════════════════════════════
+function showLoading(show) {
+  document.getElementById('loadingBox').classList.toggle('hidden', !show)
+  if (!show) document.getElementById('batchProgress').classList.add('hidden')
 }
 
-function filterLinks(filter) {
-  currentLinkFilter = filter
-  document.querySelectorAll('.lfilter-btn').forEach(b => {
-    const isActive = b.dataset.f === filter
-    b.classList.toggle('bg-red-600', isActive && filter==='dead'); b.classList.toggle('text-white', isActive)
-    b.classList.toggle('bg-amber-500', isActive && filter==='redirect')
-    b.classList.toggle('bg-slate-700', isActive && filter==='all')
-  })
-  renderLinksList(filter)
+function showError(show, msg='') {
+  document.getElementById('errorBox').classList.toggle('hidden', !show)
+  if (show) document.getElementById('errorMsg').textContent = msg
 }
 
-// ══════════════════════════════════════════
-// 보고서
-// ══════════════════════════════════════════
-async function downloadReport() {
-  if (!scanResult) return
-  try {
-    const res = await fetch('/api/report', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(scanResult) })
-    const blob = await res.blob()
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = `a11y-report-${Date.now()}.html`
-    a.click()
-  } catch(e) { alert('보고서 오류: ' + e.message) }
+function hideResults() {
+  document.getElementById('resultArea').classList.add('hidden')
+  document.getElementById('batchResultArea').classList.add('hidden')
+  // 탭 초기화
+  ;['spell','links','w3c','krds'].forEach(t => document.getElementById(`tab-btn-${t}`)?.classList.add('hidden'))
+  document.getElementById('tab-btn-a11y').click()
 }
 
-async function printReport() {
-  if (!scanResult) return
-  try {
-    const res = await fetch('/api/report', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(scanResult) })
-    const html = await res.text()
-    const win = window.open('','_blank')
-    win.document.write(html)
-    win.document.close()
-    setTimeout(() => win.print(), 800)
-  } catch(e) { alert('인쇄 오류: ' + e.message) }
+function setProgress(pct) {
+  document.getElementById('progressBar').style.width = `${pct}%`
 }
 
-// ══════════════════════════════════════════
-// 유틸
-// ══════════════════════════════════════════
-function esc(s) {
-  if (!s) return ''
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+function resetScanBtn() {
+  const btn = document.getElementById('scanBtn')
+  btn.disabled = false
+  btn.innerHTML = '<i class="fas fa-play"></i> 종합 검사 시작'
 }
 
-document.getElementById('urlInput').addEventListener('keydown', e => { if (e.key === 'Enter') startScan() })
+// renderBatchInline에서 batchResults에 저장
+const _origRenderBatch = renderBatchInline
+window.renderBatchInline = function(results, opts) {
+  batchResults = results
+  _origRenderBatch(results, opts)
+}
+
+// 초기화 시 renderBatchInline을 래핑
+document.addEventListener('DOMContentLoaded', () => {
+  batchResults = []
+})
 </script>
 </body>
 </html>

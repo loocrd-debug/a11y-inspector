@@ -2,19 +2,32 @@ import express from 'express'
 import cors from 'cors'
 import { chromium } from 'playwright'
 import { createServer } from 'http'
-import { readFileSync } from 'fs'
+import { readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'fs'
 import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
+import { dirname, join, extname } from 'path'
 import { createRequire } from 'module'
 import ExcelJS from 'exceljs'
+import { tmpdir } from 'os'
+import { randomBytes } from 'crypto'
 
 const require = createRequire(import.meta.url)
+const multer  = require('multer')
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
+// multer: 메모리에 파일 보관 (각 파일 최대 5MB, 전체 500파일)
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 500 },
+  fileFilter: (req, file, cb) => {
+    if (/\.(html?|jsp|asp|php)$/i.test(file.originalname)) cb(null, true)
+    else cb(null, false)
+  }
+})
+
 const app = express()
 app.use(cors())
-app.use(express.json({ limit: '10mb' }))
+app.use(express.json({ limit: '50mb' }))
 app.use(express.static(join(__dirname, 'public')))
 
 // axe-core 소스 서버 시작 시 1회만 로드 (캐싱 → 매 스캔 I/O 제거)
@@ -23,9 +36,10 @@ const AXE_SOURCE = readFileSync(join(__dirname, 'node_modules/axe-core/axe.min.j
 // ─────────────────────────────────────────────────────
 // 브라우저 풀 (배치 스캔에서 매번 launch/close 하지 않고 재사용)
 // ─────────────────────────────────────────────────────
-const BROWSER_POOL_SIZE = 5       // 동시 유지 브라우저 수 (3→5 속도↑)
-const BATCH_CONCURRENCY = 5       // 배치 동시 처리 수 (3→5 속도↑)
-const BROWSER_MAX_USES  = 50      // 재사용 횟수 초과 시 교체 (메모리 누수 방지)
+const BROWSER_POOL_SIZE = 8       // 동시 유지 브라우저 수 (5→8 속도↑)
+const BATCH_CONCURRENCY = 8       // 배치 동시 처리 수 (5→8 속도↑)
+const BROWSER_MAX_USES  = 40      // 재사용 횟수 초과 시 교체 (메모리 누수 방지)
+const MAX_EVIDENCE_STORE = 5000   // evidenceStore 최대 보관 수 (메모리 제한)
 
 class BrowserPool {
   constructor(size = BROWSER_POOL_SIZE) {
@@ -44,7 +58,11 @@ class BrowserPool {
         '--no-first-run', '--safebrowsing-disable-auto-update',
         '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
         '--disable-backgrounding-occluded-windows',
-        '--js-flags=--max-old-space-size=256'   // JS 힙 제한 → 메모리 절약
+        '--disable-software-rasterizer', '--disable-features=TranslateUI',
+        '--disable-ipc-flooding-protection', '--disable-hang-monitor',
+        '--disable-prompt-on-repost', '--disable-domain-reliability',
+        '--disable-component-update', '--disable-client-side-phishing-detection',
+        '--js-flags=--max-old-space-size=512'   // JS 힙 제한 (512MB)
       ]
     })
     return { browser, uses: 0, busy: false }
@@ -322,6 +340,67 @@ async function checkDeadLinks(links, baseUrl, page) {
 }
 
 // ═══════════════════════════════════════════════════════
+// ─── 로컬 HTML/JSP 파일 스캔 API ─────────────────────
+// ═══════════════════════════════════════════════════════
+// FormData: files[] + options(JSON string)
+app.post('/api/scan/local', upload.array('files', 500), async (req, res) => {
+  const files = req.files
+  if (!files || files.length === 0) return res.status(400).json({ error: '파일이 없습니다.' })
+
+  let options = {}
+  try { options = JSON.parse(req.body.options || '{}') } catch(e) {}
+  const {
+    level = 'wcag2aa',
+    includeScreenshot = false,   // 로컬 파일은 스크린샷 기본 비활성
+    checkSpelling = false,
+    checkLinks = false,
+    checkW3C = false,
+    checkKRDS = false,
+  } = options
+
+  // 임시 디렉토리에 파일 저장
+  const tmpDir = join(tmpdir(), 'scan_local_' + randomBytes(6).toString('hex'))
+  mkdirSync(tmpDir, { recursive: true })
+
+  const tmpFiles = []
+  for (const f of files) {
+    const safeName = f.originalname.replace(/[^a-zA-Z0-9가-힣._-]/g, '_')
+    const tmpPath = join(tmpDir, safeName)
+    writeFileSync(tmpPath, f.buffer)
+    tmpFiles.push({ path: tmpPath, name: f.originalname })
+  }
+
+  // 파일을 file:// URL로 변환하여 병렬 스캔 (최대 BATCH_CONCURRENCY 동시)
+  const results = []
+  const CONCUR = Math.min(BATCH_CONCURRENCY, 5)
+  
+  try {
+    const queue = tmpFiles.map((f, i) => ({ ...f, idx: i }))
+    const workers = Array.from({ length: CONCUR }, async () => {
+      while (queue.length > 0) {
+        const item = queue.shift()
+        if (!item) break
+        const fileUrl = `file://${item.path}`
+        const result = await scanSinglePage(fileUrl, {
+          level, includeScreenshot, checkSpelling, checkLinks,
+          useW3CLinks: false, checkW3C, checkKRDS
+        })
+        result.fileName = item.name
+        result.url = item.name   // 파일명을 URL 대신 표시
+        results[item.idx] = result
+      }
+    })
+    await Promise.allSettled(workers)
+  } finally {
+    // 임시 파일 정리
+    for (const f of tmpFiles) { try { unlinkSync(f.path) } catch(e){} }
+    try { require('fs').rmdirSync(tmpDir) } catch(e){}
+  }
+
+  res.json({ results: results.filter(Boolean), total: results.length })
+})
+
+// ═══════════════════════════════════════════════════════
 // ─── 메인 통합 검사 API ───────────────────────────────
 // ═══════════════════════════════════════════════════════
 app.post('/api/scan', async (req, res) => {
@@ -329,8 +408,8 @@ app.post('/api/scan', async (req, res) => {
     url,
     level = 'wcag2aa',
     includeScreenshot = true,
-    checkSpelling = true,
-    checkLinks = true,
+    checkSpelling = false,    // 기본: WCAG만 (옵션 선택 시 활성화)
+    checkLinks = false,       // 기본: 비활성 (옵션 선택 시 활성화)
     useW3CLinks = false,    // W3C Link Checker 사용 여부
     checkW3C = false,
     checkKRDS: doCheckKRDS = false,  // KRDS 준수 검사 여부
@@ -350,7 +429,11 @@ app.post('/api/scan', async (req, res) => {
         '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
         '--disable-extensions', '--disable-default-apps', '--disable-sync', '--disable-translate',
         '--mute-audio', '--no-first-run', '--disable-background-networking',
-        '--disable-background-timer-throttling', '--disable-renderer-backgrounding'
+        '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
+        '--disable-software-rasterizer', '--disable-ipc-flooding-protection',
+        '--disable-hang-monitor', '--disable-domain-reliability',
+        '--disable-component-update', '--disable-client-side-phishing-detection',
+        '--js-flags=--max-old-space-size=512'
       ]
     })
     const page = await browser.newPage()
@@ -358,13 +441,13 @@ app.post('/api/scan', async (req, res) => {
 
     // 불필요 리소스 차단 → 로드 속도 대폭 향상
     if (!includeScreenshot) {
-      await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3,pdf,flv,avi,mov}', r => r.abort())
-      await page.route('**/{gtag,analytics,ga,fbq,hotjar,clarity,matomo}*', r => r.abort())
+      await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3,pdf,flv,avi,mov,swf}', r => r.abort())
+      await page.route('**/{gtag,analytics,ga,fbq,hotjar,clarity,matomo,pixel,beacon,telemetry}*', r => r.abort())
     } else {
-      await page.route('**/*.{woff,woff2,ttf,eot,mp4,mp3,pdf,flv,avi,mov}', r => r.abort())
+      await page.route('**/*.{woff,woff2,ttf,eot,mp4,mp3,pdf,flv,avi,mov,swf}', r => r.abort())
     }
     // 광고/트래킹 도메인 차단 (공통)
-    await page.route('**/{doubleclick,googlesyndication,adservice,adsystem,moatads,scorecardresearch}**', r => r.abort())
+    await page.route('**/{doubleclick,googlesyndication,adservice,adsystem,moatads,scorecardresearch,quantserve,chartbeat}**', r => r.abort())
 
     await page.goto(normalizedUrl, { waitUntil: 'domcontentloaded', timeout: 20000 })
     // waitForTimeout 제거 → 즉시 처리 (domcontentloaded 후 충분)
@@ -396,7 +479,9 @@ app.post('/api/scan', async (req, res) => {
           values: runLevel === 'wcag2a' ? ['wcag2a'] :
                   runLevel === 'wcag2aa' ? ['wcag2a', 'wcag2aa'] :
                   ['wcag2a', 'wcag2aa', 'wcag2aaa']
-        }
+        },
+        resultTypes: ['violations', 'passes'],
+        reporter: 'v1'
       })
     }, level)
 
@@ -561,6 +646,7 @@ app.post('/api/scan', async (req, res) => {
       pageTitle,
       level,
       score,
+      status: 'completed',
       summary: { violations: violations.length, passes, incomplete, inapplicable, impactCounts },
       violations,
       screenshot: screenshotBase64,
@@ -887,6 +973,55 @@ app.post('/api/report', (req, res) => {
 // 인메모리 저장소 (배치 스캔 세션 및 결과)
 const batchSessions = new Map()
 const evidenceStore = new Map()
+
+// evidenceStore 크기 제한 헬퍼 (오래된 항목 자동 삭제로 메모리 과다 방지)
+function addEvidence(id, data) {
+  evidenceStore.set(id, data)
+  if (evidenceStore.size > MAX_EVIDENCE_STORE) {
+    // 가장 오래된 항목부터 삭제 (FIFO)
+    const oldestKey = evidenceStore.keys().next().value
+    evidenceStore.delete(oldestKey)
+  }
+}
+
+// 배치 결과를 경량화하여 메모리 절약 (배치 테이블 표시용 summary만 유지)
+function lightResult(result) {
+  return {
+    id: result.id,
+    scannedAt: result.scannedAt,
+    url: result.url,
+    originalUrl: result.originalUrl,
+    pageTitle: result.pageTitle,
+    level: result.level,
+    score: result.score,
+    status: result.status,
+    error: result.error,
+    fileName: result.fileName,
+    summary: result.summary,
+    spelling: result.spelling ? {
+      totalIssues: result.spelling.totalIssues ?? result.spelling.issues?.length ?? 0,
+      totalWords: result.spelling.totalWords ?? 0
+    } : null,
+    links: result.links ? {
+      dead: result.links.dead?.length ?? 0,
+      redirects: result.links.redirects?.length ?? 0,
+      live: result.links.live ?? 0,
+      total: result.links.total ?? 0,
+      engine: result.links.engine
+    } : null,
+    w3c: result.w3c ? {
+      valid: result.w3c.valid,
+      errorCount: result.w3c.errorCount ?? 0,
+      warningCount: result.w3c.warningCount ?? 0
+    } : null,
+    krds: result.krds ? {
+      score: result.krds.score ?? 0,
+      passed: result.krds.passed ?? 0,
+      total: result.krds.total ?? 0,
+      failed: result.krds.failed ?? 0
+    } : null
+  }
+}
 
 // 민원 목록 조회 (plus.gov.kr API 활용 → www.gov.kr/mw 민원안내 URL 사용)
 app.get('/api/minwon/list', async (req, res) => {
@@ -1637,17 +1772,21 @@ async function scanSinglePage(url, options = {}) {
     await page.setViewportSize({ width: 1280, height: 900 })
 
     // 이미지·폰트·미디어 차단 → 로드 속도 향상 (스크린샷 필요 시 이미지는 허용)
+    // file:// 로컬파일은 광고/트래킹 차단 불필요, 나머지만 차단
+    const isLocal = url.startsWith('file://')
     if (!includeScreenshot) {
-      await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3,pdf,flv,avi,mov}', r => r.abort())
-      await page.route('**/{gtag,analytics,ga,fbq,hotjar,clarity,matomo}*', r => r.abort())
+      await page.route('**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3,pdf,flv,avi,mov,swf}', r => r.abort())
+      if (!isLocal) await page.route('**/{gtag,analytics,ga,fbq,hotjar,clarity,matomo,pixel,beacon,telemetry}*', r => r.abort())
     } else {
-      await page.route('**/*.{woff,woff2,ttf,eot,mp4,mp3,pdf,flv,avi,mov}', r => r.abort())
+      await page.route('**/*.{woff,woff2,ttf,eot,mp4,mp3,pdf,flv,avi,mov,swf}', r => r.abort())
     }
-    // 광고/트래킹 도메인 차단 (공통)
-    await page.route('**/{doubleclick,googlesyndication,adservice,adsystem,moatads,scorecardresearch}**', r => r.abort())
+    if (!isLocal) {
+      // 광고/트래킹 도메인 차단 (공통, 외부 URL만)
+      await page.route('**/{doubleclick,googlesyndication,adservice,adsystem,moatads,scorecardresearch,quantserve,chartbeat,adnxs}**', r => r.abort())
+    }
 
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 20000 })
-    // waitForTimeout 제거 → 즉시 처리 (domcontentloaded 후 충분)
+    const gotoTimeout = isLocal ? 10000 : 20000
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: gotoTimeout })
 
     // 페이지 타이틀 안전하게 취득 (리다이렉션 후에도 유효)
     let pageTitle = ''
@@ -1677,7 +1816,10 @@ async function scanSinglePage(url, options = {}) {
           values: runLevel === 'wcag2a' ? ['wcag2a'] :
                   runLevel === 'wcag2aa' ? ['wcag2a', 'wcag2aa'] :
                   ['wcag2a', 'wcag2aa', 'wcag2aaa']
-        }
+        },
+        // 성능 최적화: 불필요한 데이터 최소화
+        resultTypes: ['violations', 'passes'],
+        reporter: 'v1'
       })
     }, level)
 
@@ -1951,13 +2093,16 @@ app.post('/api/batch/start', async (req, res) => {
   if (!urls || !Array.isArray(urls) || urls.length === 0) {
     return res.status(400).json({ error: 'urls 배열이 필요합니다.' })
   }
-  if (urls.length > 1000) {
-    return res.status(400).json({ error: '최대 1000개 URL까지 배치 스캔 가능합니다.' })
+  // 최대 100,000개 지원 (메모리 경고 제공)
+  const MAX_BATCH = 100000
+  if (urls.length > MAX_BATCH) {
+    return res.status(400).json({ error: `최대 ${MAX_BATCH.toLocaleString()}개 URL까지 가능합니다.` })
   }
 
   const sessionId = 'batch_' + Date.now() + '_' + Math.random().toString(36).slice(2)
   const session = {
     id: sessionId,
+    label: `${urls.length.toLocaleString()}개 페이지 검사 (${new Date().toLocaleString('ko-KR')})`,
     createdAt: new Date().toISOString(),
     total: urls.length,
     completed: 0,
@@ -1971,10 +2116,9 @@ app.post('/api/batch/start', async (req, res) => {
 
   res.json({ sessionId, total: urls.length, message: '배치 스캔이 시작되었습니다.' })
 
-  // 백그라운드 실행 (BATCH_CONCURRENCY 개 병렬 처리)
+  // 백그라운드 실행 — 큐 기반 워커 (BATCH_CONCURRENCY 동시)
   ;(async () => {
     let idx = 0
-    let done = 0
     const workers = Array.from({ length: BATCH_CONCURRENCY }, async () => {
       while (true) {
         const i = idx++
@@ -1982,21 +2126,32 @@ app.post('/api/batch/start', async (req, res) => {
         const url = urls[i]
         try {
           const result = await scanSinglePage(url, options)
-          session.results.push(result)
-          evidenceStore.set(result.id, result)
+          // 전체 결과는 evidenceStore에 보관 (상세 조회용)
+          addEvidence(result.id, result)
+          // 배치 results는 경량화 버전만 (메모리 절약)
+          session.results[i] = lightResult(result)
           if (result.status === 'error') session.failed++
           else session.completed++
         } catch (err) {
           session.failed++
-          session.results.push({ url, status: 'error', error: err.message })
+          session.results[i] = {
+            id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+            url, status: 'error', error: err.message,
+            score: 0, summary: { violations:0,passes:0,incomplete:0,inapplicable:0,impactCounts:{} },
+            spelling:{totalIssues:0,totalWords:0},
+            links:{dead:0,redirects:0,live:0,total:0}, w3c:null, krds:null,
+            scannedAt: new Date().toISOString()
+          }
         }
-        done++
+        // 중간 진행도 업데이트
+        const done = session.completed + session.failed
         session.progress = Math.round(done / urls.length * 100)
       }
     })
     await Promise.allSettled(workers)
     session.status = 'completed'
     session.finishedAt = new Date().toISOString()
+    console.log(`[배치완료] ${sessionId}: ${session.completed}완료/${session.failed}오류`)
   })()
 })
 
@@ -2080,13 +2235,15 @@ app.post('/api/batch/start-all', async (req, res) => {
                 result.category = result.category || entry.category
                 result.department = result.department || entry.department
               }
-              sess.results.push(result)
-              evidenceStore.set(result.id, result)
+              addEvidence(result.id, result)
+              sess.results.push(lightResult(result))
               if (result.status === 'error') sess.failed++
               else sess.completed++
             } catch (err) {
               sess.failed++
-              sess.results.push({ url: urlStr, status: 'error', error: err.message })
+              sess.results.push({ url: urlStr, status: 'error', error: err.message,
+                id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+                score: 0, summary: {violations:0,passes:0,incomplete:0,inapplicable:0,impactCounts:{}} })
             }
             done++
             sess.progress = Math.round(done / urlList.length * 100)
@@ -2116,11 +2273,13 @@ app.post('/api/batch/start-all', async (req, res) => {
 app.get('/api/batch/:sessionId/status', (req, res) => {
   const session = batchSessions.get(req.params.sessionId)
   if (!session) return res.status(404).json({ error: '세션을 찾을 수 없습니다.' })
+  const done = (session.completed||0) + (session.failed||0)
   res.json({
     id: session.id,
     status: session.status,
     total: session.total,
-    completed: session.completed,
+    completed: done,          // 폴링 UI에서 완료수로 사용 (성공+실패)
+    succeeded: session.completed,
     failed: session.failed,
     progress: session.progress || 0,
     createdAt: session.createdAt,

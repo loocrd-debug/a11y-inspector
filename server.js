@@ -953,7 +953,7 @@ app.post('/api/report', (req, res) => {
   </div>` : ''}
 
   <div class="footer">
-    <p>본 보고서는 우주최고 종합검사 자동 검사 결과입니다. (axe-core + Playwright)</p>
+    <p>본 보고서는 가디언즈 오브 겔럭시 자동 검사 결과입니다. (axe-core + Playwright)</p>
     <p>자동 검사는 전체 이슈의 일부만 탐지할 수 있으며, 전문가 수동 검토를 병행하시기 바랍니다.</p>
     <p style="margin-top:6px;color:#cbd5e1">생성: ${new Date().toLocaleString('ko-KR')}</p>
   </div>
@@ -2349,7 +2349,7 @@ app.get('/api/batch/:sessionId/excel', async (req, res) => {
 
   try {
     const wb = new ExcelJS.Workbook()
-    wb.creator = '우주최고 종합검사'
+    wb.creator = '가디언즈 오브 겔럭시'
     wb.created = new Date()
 
     // ── 시트 1: 종합 현황 ─────────────────────────────
@@ -3017,7 +3017,7 @@ function generateReportHtml(result) {
     <div style="font-size:10px;color:#94a3b8;margin-top:8px">검사 기준: W3C Markup Validation Service (validator.w3.org/nu) | 검사 일시: ${result.w3c?.checkedAt ? new Date(result.w3c.checkedAt).toLocaleString('ko-KR') : '-'}</div>
   </div>` : ''}
   <div class="footer">
-    <p>본 보고서는 우주최고 종합검사 자동 검사 증적입니다. (axe-core + Playwright)</p>
+    <p>본 보고서는 가디언즈 오브 겔럭시 자동 검사 증적입니다. (axe-core + Playwright)</p>
     <p>생성: ${new Date().toLocaleString('ko-KR')}</p>
   </div>
 </div>
@@ -3151,7 +3151,7 @@ function generateBatchReportHtml(session) {
     </table>
   </div>
   <div class="footer">
-    <p>본 보고서는 우주최고 종합검사 배치 자동 검사 증적입니다. (axe-core + Playwright)</p>
+    <p>본 보고서는 가디언즈 오브 겔럭시 배치 자동 검사 증적입니다. (axe-core + Playwright)</p>
     <p>생성: ${new Date().toLocaleString('ko-KR')}</p>
   </div>
 </div>
@@ -3162,5 +3162,5 @@ function generateBatchReportHtml(session) {
 // ─── 서버 시작 ───────────────────────────────────────
 const PORT = 3000
 createServer(app).listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ 우주최고 종합검사 서버 실행 중: http://0.0.0.0:${PORT}`)
+  console.log(`✅ 가디언즈 오브 겔럭시 서버 실행 중: http://0.0.0.0:${PORT}`)
 })

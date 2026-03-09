@@ -3341,4 +3341,8 @@ function generateBatchReportHtml(session) {
 const PORT = 3000
 createServer(app).listen(PORT, '0.0.0.0', () => {
   console.log(`✅ 가디언즈 오브 겔럭시 서버 실행 중: http://0.0.0.0:${PORT}`)
+  // 서버 시작 시 엑셀 미리 로드 (캐시 워밍업 + 경로 검증)
+  loadMinwonByStep()
+    .then(d => console.log(`📋 민원 목록 로드 완료: 1차=${d['1차'].length}, 2차=${d['2차'].length}, 3차=${d['3차'].length}`))
+    .catch(e => console.error(`⚠️ 민원 목록 로드 실패 (API는 동작하나 검사 시작 불가): ${e.message}`))
 })

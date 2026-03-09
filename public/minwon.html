@@ -294,8 +294,10 @@
                 <i class="fas fa-layer-group text-indigo-500"></i>
                 전환 차수별 검사 (엑셀 기준)
               </p>
-              <div id="step-counts" class="flex gap-2 mb-2 flex-wrap">
-                <span class="text-xs text-gray-400 italic">로딩 중...</span>
+              <div id="step-counts" class="flex gap-2 mb-2 flex-wrap items-center">
+                <span class="text-xs text-gray-400 italic flex items-center gap-1">
+                  <i class="fas fa-spinner fa-spin text-indigo-400"></i> 로딩 중...
+                </span>
               </div>
               <div class="flex gap-2 flex-col">
                 <button onclick="startStepScan('1차')" id="step-btn-1"
@@ -1061,25 +1063,47 @@
 
     // ─── 차수별 건수 로드 ──────────────────────────────
     async function loadStepCounts() {
+      const container = document.getElementById('step-counts')
+      if (!container) return
+      // 로딩 스피너
+      container.innerHTML = '<span class="text-xs text-gray-400 italic flex items-center gap-1"><i class="fas fa-spinner fa-spin text-indigo-400"></i> 로딩 중...</span>'
+      // 버튼 비활성화
+      ;['1','2','3'].forEach(n => {
+        const btn = document.getElementById(`step-btn-${n}`)
+        if (btn) btn.disabled = true
+      })
       try {
         const res = await fetch('/api/minwon/steps')
-        if (!res.ok) throw new Error('서버 오류')
+        if (!res.ok) throw new Error(`서버 오류 (${res.status})`)
         const data = await res.json()
-        const container = document.getElementById('step-counts')
-        if (!container) return
+        if (!data.steps || data.steps.length === 0) throw new Error('차수 데이터 없음')
+        // 건수 배지 표시
+        const colorMap = { '1차': 'bg-indigo-100 text-indigo-700', '2차': 'bg-teal-100 text-teal-700', '3차': 'bg-purple-100 text-purple-700' }
         container.innerHTML = data.steps.map(s => {
-          const colorMap = { '1차': 'bg-indigo-100 text-indigo-700', '2차': 'bg-teal-100 text-teal-700', '3차': 'bg-purple-100 text-purple-700' }
           const cls = colorMap[s.step] || 'bg-gray-100 text-gray-700'
           return `<span class="text-xs font-semibold ${cls} px-3 py-1 rounded-full">${s.step}: ${s.count.toLocaleString()}건</span>`
         }).join('')
-        // 각 버튼 카운트 업데이트
+        // 버튼 카운트 업데이트 및 활성화
         data.steps.forEach(s => {
           const n = s.step.replace('차', '')
           const el = document.getElementById(`step-count-${n}`)
           if (el) el.textContent = `${s.count.toLocaleString()}건`
+          const btn = document.getElementById(`step-btn-${n}`)
+          if (btn) btn.disabled = false
         })
       } catch (e) {
-        console.warn('차수 건수 로드 실패:', e.message)
+        console.error('차수 건수 로드 실패:', e.message)
+        container.innerHTML = `<span class="text-xs text-red-500 flex items-center gap-1">
+          <i class="fas fa-exclamation-triangle"></i> 로드 실패
+          <button onclick="loadStepCounts()" class="ml-2 text-xs bg-red-100 hover:bg-red-200 text-red-700 px-2 py-0.5 rounded font-semibold transition">
+            <i class="fas fa-redo mr-1"></i>재시도
+          </button>
+        </span>`
+        // 버튼 재활성화 (직접 클릭 가능하도록)
+        ;['1','2','3'].forEach(n => {
+          const btn = document.getElementById(`step-btn-${n}`)
+          if (btn) btn.disabled = false
+        })
       }
     }
 
@@ -1088,11 +1112,28 @@
       const stepNum = step.replace('차', '')
       const btnEl = document.getElementById(`step-btn-${stepNum}`)
       const countEl = document.getElementById(`step-count-${stepNum}`)
-      const countText = countEl ? countEl.textContent : ''
+      const countText = (countEl && countEl.textContent.trim()) ? countEl.textContent.trim() : '?'
+
+      // 건수가 없으면 먼저 steps API 재호출해서 건수 확인
+      let confirmedCount = countText
+      if (countText === '?' || countText === '') {
+        try {
+          const r = await fetch('/api/minwon/steps')
+          if (r.ok) {
+            const d = await r.json()
+            const found = d.steps.find(s => s.step === step)
+            if (found) {
+              confirmedCount = `${found.count.toLocaleString()}건`
+              const el = document.getElementById(`step-count-${stepNum}`)
+              if (el) el.textContent = confirmedCount
+            }
+          }
+        } catch(_) {}
+      }
 
       const confirmed = confirm(
         `⚠️ ${step} 전환 민원 검사\n\n` +
-        `• 대상: ${step} 전환 민원 ${countText}\n` +
+        `• 대상: ${step} 전환 민원 ${confirmedCount}\n` +
         `• 1000개 단위로 세션 분할하여 검사합니다.\n` +
         `• 페이지당 약 20~30초 소요 → 완료까지 상당한 시간이 걸립니다.\n` +
         `• 검사 중 브라우저를 닫아도 서버에서 계속 진행됩니다.\n\n` +
@@ -1100,7 +1141,8 @@
       )
       if (!confirmed) return
 
-      if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>수집 중...` }
+      const labelMap = { '1차': '1차 전환 민원 검사', '2차': '2차 전환 민원 검사', '3차': '3차 전환 민원 검사' }
+      if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>검사 시작 중...` }
 
       const _chkLinks = document.getElementById('opt-links').checked
       const options = {
@@ -1120,6 +1162,10 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ step, options, chunkSize: 1000 })
         })
+        if (!res.ok) {
+          const errText = await res.text()
+          throw new Error(`서버 오류 (${res.status}): ${errText}`)
+        }
         const data = await res.json()
         if (data.error) throw new Error(data.error)
 
@@ -1147,12 +1193,13 @@
         startPollingAll(data.sessionIds)
 
       } catch (e) {
-        alert(`${step} 검사 시작 실패: ` + e.message)
+        alert(`${step} 검사 시작 실패:\n${e.message}`)
       } finally {
-        const labelMap = { '1차': '1차 전환 민원 검사', '2차': '2차 전환 민원 검사', '3차': '3차 전환 민원 검사' }
         if (btnEl) {
           btnEl.disabled = false
-          btnEl.innerHTML = `<i class="fas fa-play-circle mr-2"></i>${labelMap[step] || step}<span id="step-count-${stepNum}" class="bg-white/30 text-white text-xs px-2 py-0.5 rounded-full font-semibold">${countText}</span>`
+          const cEl = document.getElementById(`step-count-${stepNum}`)
+          const latestCount = cEl ? cEl.textContent : confirmedCount
+          btnEl.innerHTML = `<i class="fas fa-play-circle mr-2"></i>${labelMap[step] || step} <span id="step-count-${stepNum}" class="bg-white/30 text-white text-xs px-2 py-0.5 rounded-full font-semibold">${latestCount}</span>`
         }
       }
     }

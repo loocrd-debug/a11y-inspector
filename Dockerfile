@@ -15,12 +15,17 @@ RUN npx playwright install chromium
 # 소스코드 복사
 COPY server.js ./
 COPY public/ ./public/
+# ★ 민원 목록 엑셀 파일 복사 (차수별 검사에 필수)
+COPY data/ ./data/
+
+# 로그 디렉터리 생성
+RUN mkdir -p /app/logs
 
 # 포트
 EXPOSE 3000
 
 # 헬스체크
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-  CMD curl -f http://localhost:3000/ || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+  CMD curl -f http://localhost:3000/api/minwon/steps || exit 1
 
-CMD ["node", "server.js"]
+CMD ["node", "--max-old-space-size=512", "server.js"]

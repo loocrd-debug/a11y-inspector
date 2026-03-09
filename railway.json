@@ -5,10 +5,10 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "startCommand": "node server.js",
-    "healthcheckPath": "/",
+    "startCommand": "node --max-old-space-size=512 server.js",
+    "healthcheckPath": "/api/minwon/steps",
     "healthcheckTimeout": 60,
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 3
+    "restartPolicyMaxRetries": 100
   }
 }

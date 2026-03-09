@@ -283,10 +283,41 @@
               배치 스캔 시작 (선택 목록)
             </button>
             <button onclick="startAllScan()" id="start-all-btn2"
-              class="w-full bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white font-bold py-3 px-6 rounded-xl transition flex items-center justify-center gap-2 text-sm">
+              class="w-full bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white font-bold py-3 px-6 rounded-xl transition flex items-center justify-center gap-2 text-sm mb-2">
               <i class="fas fa-globe"></i>
               전체 민원안내 검사 (1000개 단위)
             </button>
+
+            <!-- ── 차수별 검사 ── -->
+            <div class="border-t border-gray-100 mt-3 pt-3">
+              <p class="text-xs font-semibold text-gray-700 mb-2 flex items-center gap-1">
+                <i class="fas fa-layer-group text-indigo-500"></i>
+                전환 차수별 검사 (엑셀 기준)
+              </p>
+              <div id="step-counts" class="flex gap-2 mb-2 flex-wrap">
+                <span class="text-xs text-gray-400 italic">로딩 중...</span>
+              </div>
+              <div class="flex gap-2 flex-col">
+                <button onclick="startStepScan('1차')" id="step-btn-1"
+                  class="w-full bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 text-white font-bold py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-sm">
+                  <i class="fas fa-play-circle"></i>
+                  1차 전환 민원 검사
+                  <span id="step-count-1" class="bg-white/30 text-white text-xs px-2 py-0.5 rounded-full font-semibold"></span>
+                </button>
+                <button onclick="startStepScan('2차')" id="step-btn-2"
+                  class="w-full bg-gradient-to-r from-teal-500 to-green-600 hover:from-teal-600 hover:to-green-700 text-white font-bold py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-sm">
+                  <i class="fas fa-play-circle"></i>
+                  2차 전환 민원 검사
+                  <span id="step-count-2" class="bg-white/30 text-white text-xs px-2 py-0.5 rounded-full font-semibold"></span>
+                </button>
+                <button onclick="startStepScan('3차')" id="step-btn-3"
+                  class="w-full bg-gradient-to-r from-purple-500 to-pink-600 hover:from-purple-600 hover:to-pink-700 text-white font-bold py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-sm">
+                  <i class="fas fa-play-circle"></i>
+                  3차 전환 민원 검사
+                  <span id="step-count-3" class="bg-white/30 text-white text-xs px-2 py-0.5 rounded-full font-semibold"></span>
+                </button>
+              </div>
+            </div>
           </div>
 
           <!-- 진행 상태 -->
@@ -1028,6 +1059,104 @@
       }
     }
 
+    // ─── 차수별 건수 로드 ──────────────────────────────
+    async function loadStepCounts() {
+      try {
+        const res = await fetch('/api/minwon/steps')
+        if (!res.ok) throw new Error('서버 오류')
+        const data = await res.json()
+        const container = document.getElementById('step-counts')
+        if (!container) return
+        container.innerHTML = data.steps.map(s => {
+          const colorMap = { '1차': 'bg-indigo-100 text-indigo-700', '2차': 'bg-teal-100 text-teal-700', '3차': 'bg-purple-100 text-purple-700' }
+          const cls = colorMap[s.step] || 'bg-gray-100 text-gray-700'
+          return `<span class="text-xs font-semibold ${cls} px-3 py-1 rounded-full">${s.step}: ${s.count.toLocaleString()}건</span>`
+        }).join('')
+        // 각 버튼 카운트 업데이트
+        data.steps.forEach(s => {
+          const n = s.step.replace('차', '')
+          const el = document.getElementById(`step-count-${n}`)
+          if (el) el.textContent = `${s.count.toLocaleString()}건`
+        })
+      } catch (e) {
+        console.warn('차수 건수 로드 실패:', e.message)
+      }
+    }
+
+    // ─── 차수별 검사 시작 ──────────────────────────────
+    async function startStepScan(step) {
+      const stepNum = step.replace('차', '')
+      const btnEl = document.getElementById(`step-btn-${stepNum}`)
+      const countEl = document.getElementById(`step-count-${stepNum}`)
+      const countText = countEl ? countEl.textContent : ''
+
+      const confirmed = confirm(
+        `⚠️ ${step} 전환 민원 검사\n\n` +
+        `• 대상: ${step} 전환 민원 ${countText}\n` +
+        `• 1000개 단위로 세션 분할하여 검사합니다.\n` +
+        `• 페이지당 약 20~30초 소요 → 완료까지 상당한 시간이 걸립니다.\n` +
+        `• 검사 중 브라우저를 닫아도 서버에서 계속 진행됩니다.\n\n` +
+        `계속하시겠습니까?`
+      )
+      if (!confirmed) return
+
+      if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>수집 중...` }
+
+      const _chkLinks = document.getElementById('opt-links').checked
+      const options = {
+        level: document.getElementById('scan-level').value,
+        includeScreenshot: document.getElementById('opt-screenshot').checked,
+        checkSpelling: document.getElementById('opt-spelling').checked,
+        checkLinks: _chkLinks,
+        useW3CLinks: _chkLinks && document.getElementById('opt-w3c-links').checked,
+        checkW3C: document.getElementById('opt-w3c').checked,
+        containerOnly: document.getElementById('opt-container').checked,
+        checkKRDS: document.getElementById('opt-krds').checked
+      }
+
+      try {
+        const res = await fetch('/api/batch/start-step', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ step, options, chunkSize: 1000 })
+        })
+        const data = await res.json()
+        if (data.error) throw new Error(data.error)
+
+        alert(
+          `✅ ${step} 차수 검사가 시작되었습니다!\n\n` +
+          `• 총 ${data.totalUrls.toLocaleString()}개 URL\n` +
+          `• ${data.totalSessions}개 세션으로 분할 (${data.chunkSize}개씩)\n` +
+          `• 첫 번째 세션 ID: ${data.firstSessionId}\n\n` +
+          `결과 탭에서 진행 상황을 확인하세요.`
+        )
+
+        // 세션 목록에 등록
+        data.sessionIds.forEach((sid, i) => {
+          allSessions.push({
+            id: sid,
+            total: data.chunkSize,
+            createdAt: new Date().toISOString(),
+            status: 'running',
+            label: `${step} #${i+1}/${data.totalSessions}`
+          })
+        })
+
+        currentSessionId = data.firstSessionId
+        document.getElementById('progress-panel').classList.remove('hidden')
+        startPollingAll(data.sessionIds)
+
+      } catch (e) {
+        alert(`${step} 검사 시작 실패: ` + e.message)
+      } finally {
+        const labelMap = { '1차': '1차 전환 민원 검사', '2차': '2차 전환 민원 검사', '3차': '3차 전환 민원 검사' }
+        if (btnEl) {
+          btnEl.disabled = false
+          btnEl.innerHTML = `<i class="fas fa-play-circle mr-2"></i>${labelMap[step] || step}<span id="step-count-${stepNum}" class="bg-white/30 text-white text-xs px-2 py-0.5 rounded-full font-semibold">${countText}</span>`
+        }
+      }
+    }
+
     function startPollingAll(sessionIds) {
       stopPolling()
       let currentIdx = 0
@@ -1355,6 +1484,7 @@
 
     // 초기화
     loadMinwonList(1)
+    loadStepCounts()   // 차수별 건수 로드
   </script>
 </body>
 </html>

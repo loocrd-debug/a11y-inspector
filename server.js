@@ -1192,6 +1192,172 @@ async function fetchMinwonPage(query, startCount, listCount) {
 }
 
 // ═══════════════════════════════════════════════════════
+// ─── 엑셀 기반 차수별 민원 목록 API ──────────────────
+// ═══════════════════════════════════════════════════════
+
+// 엑셀에서 차수별 민원 항목 로드 (캐시)
+let _minwonByStep = null
+async function loadMinwonByStep() {
+  if (_minwonByStep) return _minwonByStep
+  const wb = new ExcelJS.Workbook()
+  const excelPath = join(__dirname, 'data', 'minwon-list.xlsx')
+  await wb.xlsx.readFile(excelPath)
+  const ws = wb.getWorksheet(1)
+  const byStep = { '1차': [], '2차': [], '3차': [] }
+  for (let r = 2; r <= ws.rowCount; r++) {
+    const row = ws.getRow(r)
+    const code = row.getCell(2).value
+    const name = (row.getCell(3).value || '').toString().trim()
+    const dept = (row.getCell(4).value || '').toString().trim()
+    const step = (row.getCell(5).value || '').toString().trim()
+    if (!code) continue
+    const cappBizCd = String(code).trim()
+    const url = `https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=${cappBizCd}`
+    const entry = { cappBizCd, title: name, department: dept, url, step }
+    if (byStep[step]) byStep[step].push(entry)
+  }
+  _minwonByStep = byStep
+  return byStep
+}
+
+// GET /api/minwon/steps  → 차수 목록 및 건수
+app.get('/api/minwon/steps', async (req, res) => {
+  try {
+    const byStep = await loadMinwonByStep()
+    res.json({
+      steps: Object.keys(byStep).map(step => ({
+        step,
+        count: byStep[step].length
+      }))
+    })
+  } catch (err) {
+    console.error('차수 목록 오류:', err.message)
+    res.status(500).json({ error: '차수 목록 조회 실패: ' + err.message })
+  }
+})
+
+// GET /api/minwon/step/:step  → 해당 차수 민원 목록 (페이지네이션)
+app.get('/api/minwon/step/:step', async (req, res) => {
+  try {
+    const { step } = req.params
+    const page = Math.max(1, parseInt(req.query.page) || 1)
+    const pageSize = Math.min(Math.max(1, parseInt(req.query.pageSize) || 50), 1000)
+    const byStep = await loadMinwonByStep()
+    const list = byStep[step]
+    if (!list) return res.status(400).json({ error: `알 수 없는 차수: ${step}` })
+    const start = (page - 1) * pageSize
+    const items = list.slice(start, start + pageSize)
+    res.json({ step, total: list.length, page, pageSize, items })
+  } catch (err) {
+    console.error('차수별 목록 오류:', err.message)
+    res.status(500).json({ error: '차수별 목록 조회 실패: ' + err.message })
+  }
+})
+
+// POST /api/batch/start-step  → 특정 차수 전체 배치 검사 시작
+app.post('/api/batch/start-step', async (req, res) => {
+  const { step, options = {}, chunkSize = 1000 } = req.body
+  if (!step) return res.status(400).json({ error: 'step 파라미터가 필요합니다.' })
+  const safeChunk = Math.min(Math.max(parseInt(chunkSize) || 1000, 1), 1000)
+
+  try {
+    const byStep = await loadMinwonByStep()
+    const allItems = byStep[step]
+    if (!allItems || allItems.length === 0) {
+      return res.status(404).json({ error: `${step} 차수에 해당하는 민원이 없습니다.` })
+    }
+
+    const sessionIds = []
+    for (let i = 0; i < allItems.length; i += safeChunk) {
+      const chunk = allItems.slice(i, i + safeChunk)
+      const urls = chunk.map(item => ({
+        url: item.url, title: item.title,
+        category: item.step, department: item.department
+      }))
+      const sessionId = 'batch_' + step.replace('차', '') + '_' + Date.now() + '_' + Math.random().toString(36).slice(2)
+      const session = {
+        id: sessionId,
+        label: `${step} 차수 검사`,
+        step,
+        createdAt: new Date().toISOString(),
+        total: urls.length,
+        completed: 0,
+        failed: 0,
+        status: 'running',
+        results: [],
+        options,
+        urls,
+        chunkIndex: Math.floor(i / safeChunk),
+        totalChunks: Math.ceil(allItems.length / safeChunk)
+      }
+      batchSessions.set(sessionId, session)
+      sessionIds.push(sessionId)
+
+      // 백그라운드 병렬 처리
+      ;(async (sess, urlList) => {
+        let jIdx = 0, done = 0
+        const workers = Array.from({ length: BATCH_CONCURRENCY }, async () => {
+          while (true) {
+            const j = jIdx++
+            if (j >= urlList.length) break
+            const entry = urlList[j]
+            const urlStr = typeof entry === 'string' ? entry : entry.url
+            try {
+              const result = await scanSinglePage(urlStr, options)
+              if (typeof entry === 'object') {
+                result.category = result.category || entry.category
+                result.department = result.department || entry.department
+              }
+              addEvidence(result.id, result)
+              const lightResult = {
+                id: result.id, url: result.url, pageTitle: result.pageTitle,
+                score: result.score, status: result.status,
+                summary: result.summary, category: result.category,
+                department: result.department, step: sess.step,
+                spelling: result.spelling ? { totalIssues: result.spelling.totalIssues } : null,
+                links: result.links ? { dead: Array.isArray(result.links.dead) ? result.links.dead.length : (result.links.dead || 0) } : null,
+                w3c: result.w3c ? { errors: result.w3c.errors } : null,
+                krds: result.krds ? { score: result.krds.score, failed: result.krds.failed } : null,
+                scannedAt: result.scannedAt
+              }
+              sess.results.push(lightResult)
+              if (result.status === 'error') sess.failed++
+              else sess.completed++
+            } catch (err) {
+              sess.failed++
+              sess.results.push({
+                url: urlStr, status: 'error', error: err.message,
+                id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+                score: 0, summary: { violations: 0, passes: 0, incomplete: 0, inapplicable: 0, impactCounts: {} }
+              })
+            }
+            done++
+            sess.progress = Math.round(done / urlList.length * 100)
+          }
+        })
+        await Promise.allSettled(workers)
+        sess.status = 'completed'
+        sess.finishedAt = new Date().toISOString()
+        console.log(`[배치완료] ${sess.label} sessionId=${sess.id} 완료=${sess.completed} 실패=${sess.failed}`)
+      })(session, urls)
+    }
+
+    res.json({
+      step,
+      totalUrls: allItems.length,
+      totalSessions: sessionIds.length,
+      chunkSize: safeChunk,
+      sessionIds,
+      firstSessionId: sessionIds[0],
+      message: `${step} 차수 ${allItems.length}개 URL을 ${sessionIds.length}개 세션으로 분할하여 검사를 시작합니다.`
+    })
+  } catch (err) {
+    console.error('차수별 검사 시작 오류:', err.message)
+    res.status(500).json({ error: '차수별 검사 시작 실패: ' + err.message })
+  }
+})
+
+// ═══════════════════════════════════════════════════════
 // ─── 배치 스캔 API ────────────────────────────────────
 // ═══════════════════════════════════════════════════════
 

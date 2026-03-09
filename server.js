@@ -2,7 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import { chromium } from 'playwright'
 import { createServer } from 'http'
-import { readFileSync, writeFileSync, unlinkSync, mkdirSync } from 'fs'
+import { readFileSync, writeFileSync, unlinkSync, mkdirSync, existsSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, join, extname } from 'path'
 import { createRequire } from 'module'
@@ -1200,7 +1200,19 @@ let _minwonByStep = null
 async function loadMinwonByStep() {
   if (_minwonByStep) return _minwonByStep
   const wb = new ExcelJS.Workbook()
-  const excelPath = join(__dirname, 'data', 'minwon-list.xlsx')
+  // 경로 후보: 환경변수 > __dirname 기준 > process.cwd() 기준 > 절대경로
+  const candidates = [
+    process.env.EXCEL_PATH,
+    join(__dirname, 'data', 'minwon-list.xlsx'),
+    join(process.cwd(), 'data', 'minwon-list.xlsx'),
+    '/home/user/webapp/data/minwon-list.xlsx',
+    '/app/data/minwon-list.xlsx'
+  ].filter(Boolean)
+  const excelPath = candidates.find(p => existsSync(p))
+  if (!excelPath) {
+    throw new Error(`민원 목록 엑셀 파일을 찾을 수 없습니다. 시도한 경로:\n${candidates.join('\n')}`)
+  }
+  console.log('[민원목록] 엑셀 로드:', excelPath)
   await wb.xlsx.readFile(excelPath)
   const ws = wb.getWorksheet(1)
   const byStep = { '1차': [], '2차': [], '3차': [] }

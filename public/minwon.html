@@ -43,13 +43,29 @@
           <p class="text-xs text-white/70 mt-0.5">www.gov.kr/mw 민원안내 페이지 (로그인 불필요) 접근성·오탈자·링크 자동 검사 및 증적 생성</p>
         </div>
       </div>
-      <div class="flex gap-2">
+      <div class="flex gap-2 items-center">
+        <!-- 서버 상태 표시 -->
+        <div id="server-status-badge"
+          class="text-xs px-3 py-1.5 rounded-full font-semibold flex items-center gap-1.5 bg-yellow-400/20 text-yellow-200">
+          <span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse inline-block"></span>
+          <span id="server-status-text">연결 확인 중...</span>
+        </div>
         <a href="/" class="bg-white/10 hover:bg-white/20 text-white text-xs px-3 py-1.5 rounded-lg transition">
           <i class="fas fa-home mr-1"></i>메인
         </a>
       </div>
     </div>
   </header>
+
+  <!-- 서버 오프라인 배너 -->
+  <div id="server-offline-banner" class="hidden bg-red-600 text-white text-center py-2 px-4 text-sm font-semibold">
+    <i class="fas fa-exclamation-triangle mr-2"></i>
+    서버 재시작 중입니다. 잠시 후 자동으로 재연결됩니다...
+    <span id="reconnect-countdown" class="ml-2 bg-white/20 px-2 py-0.5 rounded"></span>
+    <button onclick="checkServerAndReload()" class="ml-3 bg-white text-red-600 px-3 py-0.5 rounded font-bold hover:bg-red-100 transition">
+      지금 재연결
+    </button>
+  </div>
 
   <div class="max-w-7xl mx-auto px-4 py-6">
 
@@ -1532,6 +1548,66 @@
     // 초기화
     loadMinwonList(1)
     loadStepCounts()   // 차수별 건수 로드
+
+    // ── 서버 헬스체크 & 자동 재연결 ─────────────────────
+    let _serverOnline = null
+    let _reconnectTimer = null
+    let _reconnectSec = 0
+
+    async function checkServerHealth() {
+      try {
+        const r = await fetch('/api/minwon/steps', { signal: AbortSignal.timeout(4000) })
+        if (!r.ok) throw new Error('not ok')
+        const d = await r.json()
+        // 온라인 상태
+        if (_serverOnline !== true) {
+          _serverOnline = true
+          // 배지를 초록으로
+          const badge = document.getElementById('server-status-badge')
+          const text  = document.getElementById('server-status-text')
+          if (badge) badge.className = 'text-xs px-3 py-1.5 rounded-full font-semibold flex items-center gap-1.5 bg-green-400/20 text-green-200'
+          if (text)  text.innerHTML  = '<span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span> 서버 정상'
+          // 오프라인 배너 숨기기
+          const banner = document.getElementById('server-offline-banner')
+          if (banner) banner.classList.add('hidden')
+          // 서버 복구 시 차수 건수·목록 자동 리로드
+          loadStepCounts()
+        }
+        // 카운트다운 타이머 정리
+        if (_reconnectTimer) { clearInterval(_reconnectTimer); _reconnectTimer = null }
+      } catch(e) {
+        // 오프라인 상태
+        if (_serverOnline !== false) {
+          _serverOnline = false
+          const badge = document.getElementById('server-status-badge')
+          const text  = document.getElementById('server-status-text')
+          if (badge) badge.className = 'text-xs px-3 py-1.5 rounded-full font-semibold flex items-center gap-1.5 bg-red-400/20 text-red-200'
+          if (text)  text.innerHTML  = '<span class="w-2 h-2 rounded-full bg-red-400 animate-pulse inline-block"></span> 서버 재시작 중'
+          // 오프라인 배너 표시
+          const banner = document.getElementById('server-offline-banner')
+          if (banner) banner.classList.remove('hidden')
+          // 카운트다운 시작
+          _reconnectSec = 10
+          if (_reconnectTimer) clearInterval(_reconnectTimer)
+          _reconnectTimer = setInterval(() => {
+            const el = document.getElementById('reconnect-countdown')
+            if (el) el.textContent = `${_reconnectSec}초 후 재시도`
+            _reconnectSec--
+            if (_reconnectSec < 0) { clearInterval(_reconnectTimer); _reconnectTimer = null }
+          }, 1000)
+        }
+      }
+    }
+
+    async function checkServerAndReload() {
+      const text = document.getElementById('server-status-text')
+      if (text) text.textContent = '연결 시도 중...'
+      await checkServerHealth()
+    }
+
+    // 최초 + 10초마다 헬스체크
+    checkServerHealth()
+    setInterval(checkServerHealth, 10000)
   </script>
 </body>
 </html>

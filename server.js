@@ -10,6 +10,17 @@ import ExcelJS from 'exceljs'
 import { tmpdir } from 'os'
 import { randomBytes } from 'crypto'
 
+// ── 코어덤프 비활성화 (디스크 낭비 방지) ──────────────
+try { process.setrlimit('core', { soft: 0, hard: 0 }) } catch(_) {}
+
+// ── 전역 예외 핸들러 (서버가 크래시로 죽지 않도록) ────
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException] 처리되지 않은 예외 (서버 계속 실행):', err.message)
+})
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection] 처리되지 않은 Promise 거부 (서버 계속 실행):', reason?.message || reason)
+})
+
 const require = createRequire(import.meta.url)
 const multer  = require('multer')
 const __filename = fileURLToPath(import.meta.url)
@@ -36,9 +47,11 @@ const AXE_SOURCE = readFileSync(join(__dirname, 'node_modules/axe-core/axe.min.j
 // ─────────────────────────────────────────────────────
 // 브라우저 풀 (배치 스캔에서 매번 launch/close 하지 않고 재사용)
 // ─────────────────────────────────────────────────────
-const BROWSER_POOL_SIZE = 8       // 동시 유지 브라우저 수 (5→8 속도↑)
-const BATCH_CONCURRENCY = 8       // 배치 동시 처리 수 (5→8 속도↑)
-const BROWSER_MAX_USES  = 40      // 재사용 횟수 초과 시 교체 (메모리 누수 방지)
+// ⚠️ RAM 987MB 환경: 브라우저 1개당 150~200MB → 풀 3개가 최대 안전치
+// 브라우저 3개 × 200MB = 600MB + Node.js 150MB = 750MB (< 987MB 한계)
+const BROWSER_POOL_SIZE = 3       // 동시 유지 브라우저 수 (메모리 제한으로 3개)
+const BATCH_CONCURRENCY = 3       // 배치 동시 처리 수 (메모리 제한으로 3개)
+const BROWSER_MAX_USES  = 30      // 재사용 횟수 초과 시 교체 (메모리 누수 방지)
 const MAX_EVIDENCE_STORE = 5000   // evidenceStore 최대 보관 수 (메모리 제한)
 
 class BrowserPool {
@@ -62,7 +75,7 @@ class BrowserPool {
         '--disable-ipc-flooding-protection', '--disable-hang-monitor',
         '--disable-prompt-on-repost', '--disable-domain-reliability',
         '--disable-component-update', '--disable-client-side-phishing-detection',
-        '--js-flags=--max-old-space-size=512'   // JS 힙 제한 (512MB)
+        '--js-flags=--max-old-space-size=128'   // 브라우저당 JS 힙 제한 128MB
       ]
     })
     return { browser, uses: 0, busy: false }
@@ -433,7 +446,7 @@ app.post('/api/scan', async (req, res) => {
         '--disable-software-rasterizer', '--disable-ipc-flooding-protection',
         '--disable-hang-monitor', '--disable-domain-reliability',
         '--disable-component-update', '--disable-client-side-phishing-detection',
-        '--js-flags=--max-old-space-size=512'
+        '--js-flags=--max-old-space-size=128'
       ]
     })
     const page = await browser.newPage()

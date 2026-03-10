@@ -1278,6 +1278,28 @@ app.get('/api/debug/browser', async (req, res) => {
   res.json(result)
 })
 
+// GET /api/debug/connectivity  → 외부 URL 접속 가능 여부 테스트
+app.get('/api/debug/connectivity', async (req, res) => {
+  const targets = [
+    'https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13200000003',
+    'https://example.com',
+    'https://www.google.com',
+  ]
+  const results = {}
+  for (const url of targets) {
+    try {
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 8000)
+      const r = await fetch(url, { signal: controller.signal, redirect: 'follow' })
+      clearTimeout(timer)
+      results[url] = { ok: true, status: r.status }
+    } catch (e) {
+      results[url] = { ok: false, error: e.message }
+    }
+  }
+  res.json(results)
+})
+
 // GET /api/minwon/steps  → 차수 목록 및 건수
 app.get('/api/minwon/steps', async (req, res) => {
   try {

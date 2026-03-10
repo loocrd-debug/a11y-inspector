@@ -1462,7 +1462,128 @@ app.post('/api/batch/start-step', async (req, res) => {
 // ─── 배치 스캔 API ────────────────────────────────────
 // ═══════════════════════════════════════════════════════
 
-// ─── W3C Link Checker (validator.w3.org/checklink) ────
+// ─── 차수 전체 단일 세션 검사 (번호 연속성 보장) ────────────
+// 1000개 청크 없이 차수 전체를 하나의 세션으로 처리
+app.post('/api/batch/start-step-full', async (req, res) => {
+  const { step, options = {} } = req.body
+  if (!step) return res.status(400).json({ error: 'step 파라미터가 필요합니다.' })
+
+  try {
+    const byStep = await loadMinwonByStep()
+    const allItems = byStep[step]
+    if (!allItems || allItems.length === 0) {
+      return res.status(404).json({ error: `${step} 차수에 해당하는 민원이 없습니다.` })
+    }
+
+    const urls = allItems.map(item => ({
+      url: item.url, title: item.title,
+      category: item.step, department: item.department
+    }))
+
+    const sessionId = 'full_' + step.replace('차', '') + '_' + Date.now() + '_' + Math.random().toString(36).slice(2)
+    const session = {
+      id: sessionId,
+      label: `${step} 전체 검사 (${allItems.length}개)`,
+      step,
+      createdAt: new Date().toISOString(),
+      total: urls.length,
+      completed: 0,
+      failed: 0,
+      status: 'running',
+      results: new Array(urls.length).fill(null),  // 인덱스 순서 보장
+      options,
+      urls,
+      isFull: true   // 전체 단일 세션 표시
+    }
+    batchSessions.set(sessionId, session)
+
+    // 백그라운드 병렬 처리 (인덱스 순서 유지)
+    ;(async (sess, urlList) => {
+      let jIdx = 0
+      let consecutiveConnErrors = 0
+      const MAX_CONSEC_ERRORS = 5
+
+      const workers = Array.from({ length: BATCH_CONCURRENCY }, async () => {
+        while (true) {
+          const j = jIdx++
+          if (j >= urlList.length) break
+          if (consecutiveConnErrors >= MAX_CONSEC_ERRORS) break
+          const entry = urlList[j]
+          const urlStr = typeof entry === 'string' ? entry : entry.url
+          try {
+            const result = await scanSinglePage(urlStr, options)
+            if (typeof entry === 'object') {
+              result.category = result.category || entry.category
+              result.department = result.department || entry.department
+            }
+            addEvidence(result.id, result)
+            // 인덱스 j에 결과 저장 → 번호 순서 보장
+            sess.results[j] = {
+              id: result.id, url: result.url, pageTitle: result.pageTitle,
+              score: result.score, status: result.status,
+              summary: result.summary, category: result.category,
+              department: result.department, step: sess.step,
+              spelling: result.spelling ? { totalIssues: result.spelling.totalIssues, totalWords: result.spelling.totalWords, issues: result.spelling.issues } : null,
+              links: result.links ? { dead: Array.isArray(result.links.dead) ? result.links.dead.length : (result.links.dead || 0) } : null,
+              w3c: result.w3c ? { errorCount: result.w3c.errorCount, warningCount: result.w3c.warningCount, valid: result.w3c.valid, checkedAt: result.w3c.checkedAt } : null,
+              krds: result.krds ? { score: result.krds.score, failed: result.krds.failed } : null,
+              scannedAt: result.scannedAt
+            }
+            if (result.status === 'error') {
+              sess.failed++
+              if (result.error && (result.error.includes('연결이 끊어졌습니다') || result.error.includes('연결을 거부'))) {
+                consecutiveConnErrors++
+              } else { consecutiveConnErrors = 0 }
+            } else {
+              sess.completed++
+              consecutiveConnErrors = 0
+            }
+          } catch (err) {
+            sess.failed++
+            sess.results[j] = {
+              url: urlStr, status: 'error', error: err.message,
+              id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+              score: 0, summary: { violations: 0, passes: 0, incomplete: 0, inapplicable: 0, impactCounts: {} },
+              spelling: { totalIssues: 0, totalWords: 0 },
+              links: { dead: 0 }, w3c: null, krds: null,
+              scannedAt: new Date().toISOString()
+            }
+            if (err.message.includes('ERR_CONNECTION_RESET') || err.message.includes('ERR_CONNECTION_REFUSED')) {
+              consecutiveConnErrors++
+            }
+          }
+          // 진행도: null이 아닌 결과 수 기준
+          const done = sess.results.filter(r => r !== null).length
+          sess.progress = Math.round(done / urlList.length * 100)
+        }
+      })
+      await Promise.allSettled(workers)
+
+      // null 슬롯 제거 (조기 중단된 URL)
+      sess.results = sess.results.filter(r => r !== null)
+
+      if (consecutiveConnErrors >= MAX_CONSEC_ERRORS) {
+        sess.status = 'aborted'
+        sess.abortReason = `연속 ${MAX_CONSEC_ERRORS}회 연결 오류로 중단됨. 이 서버에서 대상 사이트 접속이 차단되었을 수 있습니다.`
+        console.warn(`[전체검사중단] ${sess.label} sessionId=${sess.id}`)
+      } else {
+        sess.status = 'completed'
+        console.log(`[전체검사완료] ${sess.label} sessionId=${sess.id} 완료=${sess.completed} 실패=${sess.failed}`)
+      }
+      sess.finishedAt = new Date().toISOString()
+    })(session, urls)
+
+    res.json({
+      step,
+      totalUrls: allItems.length,
+      sessionId,
+      message: `${step} 차수 전체 ${allItems.length}개를 단일 세션으로 검사를 시작합니다.`
+    })
+  } catch (err) {
+    console.error('전체 단일 세션 검사 시작 오류:', err.message)
+    res.status(500).json({ error: '전체 검사 시작 실패: ' + err.message })
+  }
+})
 // 대상 URL을 W3C 공식 링크 검사기에 전달해 데드/리다이렉트 링크를 수집
 async function checkLinksWithW3C(targetUrl) {
   const CHECK_URL = 'https://validator.w3.org/checklink'
@@ -3036,6 +3157,232 @@ app.get('/api/batch/:sessionId/excel', async (req, res) => {
     res.status(500).json({ error: '엑셀 생성 실패: ' + err.message })
   }
 })
+// ─── 일괄 다운로드 API ───────────────────────────────────────────────────────
+
+// 세션의 모든 개별 HTML 증적 보고서를 ZIP으로 묶어 다운로드
+app.get('/api/batch/:sessionId/download-all-reports', async (req, res) => {
+  const session = batchSessions.get(req.params.sessionId)
+  if (!session) return res.status(404).json({ error: '세션을 찾을 수 없습니다.' })
+  if (session.status !== 'completed') return res.status(400).json({ error: '스캔이 완료되지 않았습니다.' })
+
+  try {
+    const archiver = require('archiver')
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    const label = (session.label || session.id).replace(/[^a-zA-Z0-9가-힣_-]/g, '_')
+    const zipFilename = `reports_${label}_${dateStr}.zip`
+
+    res.setHeader('Content-Type', 'application/zip')
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(zipFilename)}`)
+
+    const archive = archiver('zip', { zlib: { level: 6 } })
+    archive.on('error', err => { console.error('ZIP 오류:', err); res.end() })
+    archive.pipe(res)
+
+    let fileCount = 0
+    for (const r of session.results) {
+      if (r.status === 'error') continue
+      const evidence = evidenceStore.get(r.id)
+      if (!evidence) continue
+      const html = generateReportHtml(evidence)
+      const safeTitle = (r.pageTitle || r.id).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)
+      archive.append(Buffer.from(html, 'utf8'), { name: `${String(fileCount + 1).padStart(4, '0')}_${safeTitle}.html` })
+      fileCount++
+    }
+
+    await archive.finalize()
+    console.log(`일괄 HTML 다운로드: ${fileCount}개 파일, 세션=${session.id}`)
+  } catch (err) {
+    console.error('일괄 HTML 다운로드 오류:', err.message)
+    if (!res.headersSent) res.status(500).json({ error: err.message })
+  }
+})
+
+// 세션의 엑셀 + 배치 HTML 보고서를 하나의 ZIP으로 다운로드
+app.get('/api/batch/:sessionId/download-all', async (req, res) => {
+  const session = batchSessions.get(req.params.sessionId)
+  if (!session) return res.status(404).json({ error: '세션을 찾을 수 없습니다.' })
+  if (session.status !== 'completed') return res.status(400).json({ error: '스캔이 완료되지 않았습니다.' })
+
+  try {
+    const archiver = require('archiver')
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    const label = (session.label || session.id).replace(/[^a-zA-Z0-9가-힣_-]/g, '_')
+    const zipFilename = `all_${label}_${dateStr}.zip`
+
+    res.setHeader('Content-Type', 'application/zip')
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(zipFilename)}`)
+
+    const archive = archiver('zip', { zlib: { level: 6 } })
+    archive.on('error', err => { console.error('ZIP 오류:', err); res.end() })
+    archive.pipe(res)
+
+    // 1) 엑셀 파일 생성 후 추가
+    const wb = new ExcelJS.Workbook()
+    wb.creator = '가디언즈 오브 겔럭시'
+    wb.created = new Date()
+    const summaryWs = wb.addWorksheet('종합 현황')
+    summaryWs.columns = [
+      { header: '항목', key: 'label', width: 28 },
+      { header: '값', key: 'value', width: 40 }
+    ]
+    const hStyle = { font: { bold: true, color: { argb: 'FFFFFFFF' } }, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } }, alignment: { horizontal: 'center' } }
+    summaryWs.getRow(1).eachCell(c => Object.assign(c, hStyle))
+    const completedResults = session.results.filter(r => r.status !== 'error')
+    const avgScore = completedResults.length > 0 ? Math.round(completedResults.reduce((s, r) => s + (r.score || 0), 0) / completedResults.length) : 0
+    const totalViol = session.results.reduce((s, r) => s + (r.summary?.violations || 0), 0)
+    ;[
+      ['검사 세션 ID', session.id],
+      ['검사 레이블', session.label || ''],
+      ['검사 시작 일시', new Date(session.createdAt).toLocaleString('ko-KR')],
+      ['검사 완료 일시', session.finishedAt ? new Date(session.finishedAt).toLocaleString('ko-KR') : ''],
+      ['검사 대상 URL 수', session.total],
+      ['성공', session.completed],
+      ['오류', session.failed],
+      ['평균 접근성 점수', avgScore],
+      ['총 접근성 위반 건수', totalViol],
+    ].forEach(([l, v]) => {
+      const row = summaryWs.addRow({ label: l, value: v })
+      row.getCell('label').font = { bold: true }
+      row.getCell('label').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } }
+    })
+    const ws = wb.addWorksheet('페이지별 결과')
+    ws.columns = [
+      { header: 'No.', key: 'no', width: 6 }, { header: '페이지 제목', key: 'title', width: 36 },
+      { header: 'URL', key: 'url', width: 52 }, { header: '카테고리', key: 'category', width: 18 },
+      { header: '부서', key: 'department', width: 18 }, { header: '접근성 점수', key: 'score', width: 13 },
+      { header: '위반 수', key: 'violations', width: 10 }, { header: '오탈자 수', key: 'spelling', width: 10 },
+      { header: '데드링크 수', key: 'deadLinks', width: 12 }, { header: 'W3C 오류', key: 'w3cErrors', width: 11 },
+      { header: '검사 상태', key: 'status', width: 10 }, { header: '검사 일시', key: 'scannedAt', width: 22 }
+    ]
+    ws.getRow(1).eachCell(c => {
+      c.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 }
+      c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }
+      c.alignment = { horizontal: 'center', vertical: 'middle' }
+    })
+    ws.getRow(1).height = 22
+    session.results.forEach((r, idx) => {
+      const sp = r.spelling || {}; const lk = r.links || {}; const w3c = r.w3c || {}
+      ws.addRow({
+        no: idx + 1, title: r.pageTitle || '(오류)', url: r.url || '', category: r.category || '',
+        department: r.department || '', score: r.score ?? '', violations: r.summary?.violations ?? '',
+        spelling: sp.totalIssues ?? '', deadLinks: lk.dead?.length ?? '', w3cErrors: w3c.errorCount ?? '',
+        status: r.status === 'error' ? '오류' : '완료',
+        scannedAt: r.scannedAt ? new Date(r.scannedAt).toLocaleString('ko-KR') : ''
+      }).height = 18
+    })
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: ws.columns.length } }
+    ws.views = [{ state: 'frozen', ySplit: 1 }]
+    const xlsxBuffer = await wb.xlsx.writeBuffer()
+    archive.append(Buffer.from(xlsxBuffer), { name: `${label}_결과.xlsx` })
+
+    // 2) 배치 HTML 종합 보고서 추가
+    const batchHtml = generateBatchReportHtml(session)
+    archive.append(Buffer.from(batchHtml, 'utf8'), { name: `${label}_종합보고서.html` })
+
+    // 3) 개별 HTML 증적 추가 (reports/ 폴더)
+    let fileCount = 0
+    for (const r of session.results) {
+      if (r.status === 'error') continue
+      const evidence = evidenceStore.get(r.id)
+      if (!evidence) continue
+      const html = generateReportHtml(evidence)
+      const safeTitle = (r.pageTitle || r.id).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)
+      archive.append(Buffer.from(html, 'utf8'), { name: `reports/${String(fileCount + 1).padStart(4, '0')}_${safeTitle}.html` })
+      fileCount++
+    }
+
+    await archive.finalize()
+    console.log(`전체 일괄 다운로드: 엑셀+종합보고서+${fileCount}개 개별보고서, 세션=${session.id}`)
+  } catch (err) {
+    console.error('전체 일괄 다운로드 오류:', err.message)
+    if (!res.headersSent) res.status(500).json({ error: err.message })
+  }
+})
+
+// 여러 세션(전환 차수 전체)을 하나의 ZIP으로 다운로드
+app.post('/api/batch/download-multi', async (req, res) => {
+  const { sessionIds, label: reqLabel } = req.body || {}
+  if (!Array.isArray(sessionIds) || sessionIds.length === 0) {
+    return res.status(400).json({ error: 'sessionIds 배열이 필요합니다.' })
+  }
+
+  const sessions = sessionIds.map(id => batchSessions.get(id)).filter(Boolean)
+  if (sessions.length === 0) return res.status(404).json({ error: '유효한 세션이 없습니다.' })
+  const incompleteSessions = sessions.filter(s => s.status !== 'completed')
+  if (incompleteSessions.length > 0) {
+    return res.status(400).json({ error: `아직 완료되지 않은 세션이 ${incompleteSessions.length}개 있습니다.` })
+  }
+
+  try {
+    const archiver = require('archiver')
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    const zipLabel = (reqLabel || sessions[0].step || 'batch').replace(/[^a-zA-Z0-9가-힣_-]/g, '_')
+    const zipFilename = `전체다운로드_${zipLabel}_${dateStr}.zip`
+
+    res.setHeader('Content-Type', 'application/zip')
+    res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(zipFilename)}`)
+
+    const archive = archiver('zip', { zlib: { level: 5 } })
+    archive.on('error', err => { console.error('ZIP 오류:', err); res.end() })
+    archive.pipe(res)
+
+    let totalFiles = 0
+    for (const session of sessions) {
+      const sessionLabel = (session.label || session.id).replace(/[^a-zA-Z0-9가-힣_-]/g, '_')
+      const folder = sessionLabel
+
+      // 엑셀
+      const wb = new ExcelJS.Workbook()
+      wb.creator = '가디언즈 오브 겔럭시'; wb.created = new Date()
+      const ws = wb.addWorksheet('결과')
+      ws.columns = [
+        { header: 'No.', key: 'no', width: 6 }, { header: '페이지 제목', key: 'title', width: 36 },
+        { header: 'URL', key: 'url', width: 52 }, { header: '접근성 점수', key: 'score', width: 13 },
+        { header: '위반 수', key: 'violations', width: 10 }, { header: '오탈자 수', key: 'spelling', width: 10 },
+        { header: '데드링크 수', key: 'deadLinks', width: 12 }, { header: '검사 상태', key: 'status', width: 10 }
+      ]
+      ws.getRow(1).eachCell(c => {
+        c.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+        c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }
+        c.alignment = { horizontal: 'center' }
+      })
+      session.results.forEach((r, idx) => {
+        ws.addRow({
+          no: idx + 1, title: r.pageTitle || '(오류)', url: r.url || '',
+          score: r.score ?? '', violations: r.summary?.violations ?? '',
+          spelling: r.spelling?.totalIssues ?? '', deadLinks: r.links?.dead?.length ?? '',
+          status: r.status === 'error' ? '오류' : '완료'
+        })
+      })
+      const xlsxBuf = await wb.xlsx.writeBuffer()
+      archive.append(Buffer.from(xlsxBuf), { name: `${folder}/${sessionLabel}_결과.xlsx` })
+
+      // 배치 종합 HTML
+      const batchHtml = generateBatchReportHtml(session)
+      archive.append(Buffer.from(batchHtml, 'utf8'), { name: `${folder}/${sessionLabel}_종합보고서.html` })
+
+      // 개별 증적
+      let fc = 0
+      for (const r of session.results) {
+        if (r.status === 'error') continue
+        const evidence = evidenceStore.get(r.id)
+        if (!evidence) continue
+        const html = generateReportHtml(evidence)
+        const safeTitle = (r.pageTitle || r.id).replace(/[\\/:*?"<>|]/g, '_').slice(0, 60)
+        archive.append(Buffer.from(html, 'utf8'), { name: `${folder}/reports/${String(fc + 1).padStart(4, '0')}_${safeTitle}.html` })
+        fc++
+      }
+      totalFiles += fc
+    }
+
+    await archive.finalize()
+    console.log(`다중 세션 일괄 다운로드: ${sessions.length}개 세션, ${totalFiles}개 증적`)
+  } catch (err) {
+    console.error('다중 세션 다운로드 오류:', err.message)
+    if (!res.headersSent) res.status(500).json({ error: err.message })
+  }
+})
+
 function generateReportHtml(result) {
   const impactColor = { critical: '#dc2626', serious: '#ea580c', moderate: '#d97706', minor: '#65a30d' }
   const impactLabel = { critical: '치명적', serious: '심각', moderate: '보통', minor: '경미' }

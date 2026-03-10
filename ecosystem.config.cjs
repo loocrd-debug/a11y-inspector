@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'a11y-inspector',
-      script: 'server.js',
+      script: 'server.cjs',
       cwd: '/home/user/webapp',
       interpreter: 'node',
       // 코어덤프 비활성화(ulimit -c 0) + Node.js 힙 제한 512MB

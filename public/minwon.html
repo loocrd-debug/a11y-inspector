@@ -328,7 +328,12 @@
                   <i class="fas fa-spinner fa-spin text-indigo-400"></i> 로딩 중...
                 </span>
               </div>
-              <div class="flex gap-2 flex-col">
+
+              <!-- 1000개 단위 분할 검사 -->
+              <p class="text-xs text-gray-400 mb-1 mt-1 flex items-center gap-1">
+                <i class="fas fa-cut text-gray-400"></i> 1000개 단위 분할 검사 (세션 여러 개)
+              </p>
+              <div class="flex gap-2 flex-col mb-3">
                 <button onclick="startStepScan('1차')" id="step-btn-1"
                   class="w-full bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 text-white font-bold py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-sm">
                   <i class="fas fa-play-circle"></i>
@@ -346,6 +351,32 @@
                   <i class="fas fa-play-circle"></i>
                   3차 전환 민원 검사
                   <span id="step-count-3" class="bg-white/30 text-white text-xs px-2 py-0.5 rounded-full font-semibold"></span>
+                </button>
+              </div>
+
+              <!-- 차수 전체 단일 세션 검사 -->
+              <p class="text-xs text-gray-400 mb-1 flex items-center gap-1">
+                <i class="fas fa-infinity text-orange-400"></i>
+                차수 전체 단일 세션 검사 <span class="text-orange-500 font-semibold">(번호 연속 · 일괄 다운로드 최적)</span>
+              </p>
+              <div class="flex gap-2 flex-col">
+                <button onclick="startFullStepScan('1차')" id="full-btn-1"
+                  class="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-sm">
+                  <i class="fas fa-globe"></i>
+                  1차 전체 검사
+                  <span id="full-count-1" class="bg-white/30 text-white text-xs px-2 py-0.5 rounded-full font-semibold"></span>
+                </button>
+                <button onclick="startFullStepScan('2차')" id="full-btn-2"
+                  class="w-full bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white font-bold py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-sm">
+                  <i class="fas fa-globe"></i>
+                  2차 전체 검사
+                  <span id="full-count-2" class="bg-white/30 text-white text-xs px-2 py-0.5 rounded-full font-semibold"></span>
+                </button>
+                <button onclick="startFullStepScan('3차')" id="full-btn-3"
+                  class="w-full bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-bold py-2.5 px-4 rounded-xl transition flex items-center justify-center gap-2 text-sm">
+                  <i class="fas fa-globe"></i>
+                  3차 전체 검사
+                  <span id="full-count-3" class="bg-white/30 text-white text-xs px-2 py-0.5 rounded-full font-semibold"></span>
                 </button>
               </div>
             </div>
@@ -383,9 +414,17 @@
             <i class="fas fa-history text-purple-600"></i>
             검사 세션
           </h3>
-          <button onclick="loadSessionList()" class="text-xs text-gray-500 hover:text-gray-700">
-            <i class="fas fa-sync mr-1"></i>새로고침
-          </button>
+          <div class="flex items-center gap-2">
+            <button onclick="downloadAllSessions()" id="dl-all-sessions-btn"
+              class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-lg flex items-center gap-1 disabled:bg-gray-300 transition"
+              title="완료된 모든 세션을 ZIP 하나로 다운로드">
+              <i class="fas fa-download"></i>
+              전체 세션 일괄 다운로드
+            </button>
+            <button onclick="loadSessionList()" class="text-xs text-gray-500 hover:text-gray-700">
+              <i class="fas fa-sync mr-1"></i>새로고침
+            </button>
+          </div>
         </div>
         <div id="session-list" class="text-sm text-gray-400 text-center py-4">
           배치 스캔 결과가 없습니다. 배치 스캔을 실행하세요.
@@ -441,6 +480,18 @@
                 class="bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white text-xs px-4 py-2 rounded-lg transition flex items-center gap-1">
                 <i class="fas fa-file-excel"></i>
                 엑셀 다운로드
+              </button>
+              <button onclick="downloadAllReports()" id="dl-all-reports-btn" disabled
+                class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white text-xs px-4 py-2 rounded-lg transition flex items-center gap-1"
+                title="개별 증적 HTML 파일을 ZIP으로 일괄 다운로드">
+                <i class="fas fa-file-archive"></i>
+                증적 ZIP
+              </button>
+              <button onclick="downloadEverything()" id="dl-everything-btn" disabled
+                class="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 text-white text-xs px-4 py-2 rounded-lg transition flex items-center gap-1"
+                title="엑셀 + 종합 HTML + 개별 증적을 모두 ZIP으로 다운로드">
+                <i class="fas fa-download"></i>
+                전체 일괄
               </button>
             </div>
           </div>
@@ -991,6 +1042,8 @@
         if (data.status === 'completed') {
           document.getElementById('dl-batch-btn').disabled = false
           document.getElementById('dl-excel-btn').disabled = false
+          document.getElementById('dl-all-reports-btn').disabled = false
+          document.getElementById('dl-everything-btn').disabled = false
         }
 
       } catch (e) {
@@ -1018,6 +1071,92 @@
         alert('엑셀 다운로드 실패: ' + e.message)
         btn.disabled = false
         btn.innerHTML = '<i class="fas fa-file-excel mr-1"></i>엑셀 다운로드'
+      }
+    }
+
+    // ─── 증적 ZIP 일괄 다운로드 ──────────────────────────
+    async function downloadAllReports() {
+      if (!currentSessionId) return
+      const btn = document.getElementById('dl-all-reports-btn')
+      btn.disabled = true
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>ZIP 생성 중...'
+      try {
+        // 개별 HTML 증적만 ZIP으로
+        window.location.href = '/api/batch/' + currentSessionId + '/download-all-reports'
+        setTimeout(() => {
+          btn.disabled = false
+          btn.innerHTML = '<i class="fas fa-file-archive mr-1"></i>증적 ZIP'
+        }, 5000)
+      } catch (e) {
+        alert('ZIP 다운로드 실패: ' + e.message)
+        btn.disabled = false
+        btn.innerHTML = '<i class="fas fa-file-archive mr-1"></i>증적 ZIP'
+      }
+    }
+
+    // ─── 전체 일괄 다운로드 (엑셀 + 종합 HTML + 개별 증적) ──
+    async function downloadEverything() {
+      if (!currentSessionId) return
+      const btn = document.getElementById('dl-everything-btn')
+      btn.disabled = true
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>ZIP 생성 중...'
+      try {
+        window.location.href = '/api/batch/' + currentSessionId + '/download-all'
+        setTimeout(() => {
+          btn.disabled = false
+          btn.innerHTML = '<i class="fas fa-download mr-1"></i>전체 일괄'
+        }, 8000)
+      } catch (e) {
+        alert('전체 일괄 다운로드 실패: ' + e.message)
+        btn.disabled = false
+        btn.innerHTML = '<i class="fas fa-download mr-1"></i>전체 일괄'
+      }
+    }
+
+    // ─── 전체 세션 일괄 다운로드 ──────────────────────────
+    async function downloadAllSessions() {
+      const completedSessions = allSessions.filter(s => s.status === 'completed')
+      if (completedSessions.length === 0) {
+        alert('완료된 세션이 없습니다. 먼저 배치 스캔을 완료하세요.')
+        return
+      }
+
+      const btn = document.getElementById('dl-all-sessions-btn')
+      btn.disabled = true
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>ZIP 생성 중...'
+
+      try {
+        const sessionIds = completedSessions.map(s => s.id)
+        const label = completedSessions[0]?.step ||
+          (completedSessions[0]?.label ? completedSessions[0].label.split('_')[0] : '전체')
+
+        const res = await fetch('/api/batch/download-multi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionIds, label })
+        })
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: res.statusText }))
+          throw new Error(err.error || '다운로드 실패')
+        }
+
+        // Blob으로 받아서 다운로드
+        const blob = await res.blob()
+        const filename = decodeURIComponent(
+          (res.headers.get('Content-Disposition') || '')
+            .match(/filename\*=UTF-8''(.+)/)?.[1] ||
+          `전체다운로드_${new Date().toISOString().slice(0,10)}.zip`
+        )
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url; a.download = filename; a.click()
+        URL.revokeObjectURL(url)
+      } catch (e) {
+        alert('전체 세션 다운로드 실패: ' + e.message)
+      } finally {
+        btn.disabled = false
+        btn.innerHTML = '<i class="fas fa-download mr-1"></i>전체 세션 일괄 다운로드'
       }
     }
 
@@ -1117,10 +1256,16 @@
         // 버튼 카운트 업데이트 및 활성화
         data.steps.forEach(s => {
           const n = s.step.replace('차', '')
+          // 분할 검사 버튼
           const el = document.getElementById(`step-count-${n}`)
           if (el) el.textContent = `${s.count.toLocaleString()}건`
           const btn = document.getElementById(`step-btn-${n}`)
           if (btn) btn.disabled = false
+          // 전체 검사 버튼
+          const fullEl = document.getElementById(`full-count-${n}`)
+          if (fullEl) fullEl.textContent = `${s.count.toLocaleString()}건`
+          const fullBtn = document.getElementById(`full-btn-${n}`)
+          if (fullBtn) fullBtn.disabled = false
         })
       } catch (e) {
         console.error('차수 건수 로드 실패:', e.message)
@@ -1134,6 +1279,8 @@
         ;['1','2','3'].forEach(n => {
           const btn = document.getElementById(`step-btn-${n}`)
           if (btn) btn.disabled = false
+          const fullBtn = document.getElementById(`full-btn-${n}`)
+          if (fullBtn) fullBtn.disabled = false
         })
       }
     }
@@ -1215,6 +1362,7 @@
             total: data.chunkSize,
             createdAt: new Date().toISOString(),
             status: 'running',
+            step: step,
             label: `${step} #${i+1}/${data.totalSessions}`
           })
         })
@@ -1246,6 +1394,144 @@
           btnEl.innerHTML = `<i class="fas fa-play-circle mr-2"></i>${labelMap[step] || step} <span id="step-count-${stepNum}" class="bg-white/30 text-white text-xs px-2 py-0.5 rounded-full font-semibold">${latestCount}</span>`
         }
       }
+    }
+
+    // ─── 차수 전체 단일 세션 검사 ─────────────────────────
+    async function startFullStepScan(step) {
+      const stepNum = step.replace('차', '')
+      const btnEl = document.getElementById(`full-btn-${stepNum}`)
+      const countEl = document.getElementById(`full-count-${stepNum}`)
+      const countText = countEl ? countEl.textContent.trim() : '?'
+
+      const labelMap = { '1차': '1차 전체 검사', '2차': '2차 전체 검사', '3차': '3차 전체 검사' }
+
+      const confirmed = confirm(
+        `⚠️ ${step} 차수 전체 단일 세션 검사\n\n` +
+        `• 대상: ${countText}\n` +
+        `• 1000개 단위로 쪼개지 않고 하나의 세션으로 처리합니다.\n` +
+        `• 결과 번호가 1번부터 순서대로 연속됩니다.\n` +
+        `• 완료 후 엑셀/보고서/증적을 한 번에 ZIP으로 다운로드 가능합니다.\n` +
+        `• 페이지당 약 20~30초 소요 → 전체 완료까지 수 시간이 걸릴 수 있습니다.\n\n` +
+        `계속하시겠습니까?`
+      )
+      if (!confirmed) return
+
+      // 모든 버튼 비활성화
+      ;['1','2','3'].forEach(n => {
+        const b1 = document.getElementById(`step-btn-${n}`)
+        const b2 = document.getElementById(`full-btn-${n}`)
+        if (b1) b1.disabled = true
+        if (b2) b2.disabled = true
+      })
+      if (btnEl) {
+        btnEl.disabled = true
+        btnEl.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>${step} 전체 검사 시작 중...`
+      }
+
+      try {
+        // gov.kr 접근 가능 여부 확인
+        const govCheck = await fetch('/api/debug/connectivity').then(r => r.json()).catch(() => null)
+        if (govCheck && govCheck.results) {
+          const govResult = govCheck.results.find(r => r.url && r.url.includes('gov.kr'))
+          if (govResult && !govResult.ok) {
+            document.getElementById('govkr-blocked-banner') &&
+              document.getElementById('govkr-blocked-banner').classList.remove('hidden')
+            alert(`❌ gov.kr 접근 불가\n\n이 서버에서 gov.kr에 접근할 수 없습니다.\n로컬 PC에서 실행하세요.`)
+            throw new Error('gov.kr 접근 불가')
+          }
+        }
+
+        const res = await fetch('/api/batch/start-step-full', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ step, options: {
+            level: document.getElementById('scan-level').value,
+            includeScreenshot: document.getElementById('opt-screenshot').checked,
+            checkSpelling: document.getElementById('opt-spelling').checked,
+            checkLinks: document.getElementById('opt-links').checked,
+            useW3CLinks: document.getElementById('opt-links').checked && document.getElementById('opt-w3c-links').checked,
+            checkW3C: document.getElementById('opt-w3c').checked,
+            containerOnly: document.getElementById('opt-container').checked,
+            checkKRDS: document.getElementById('opt-krds').checked
+          }})
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || '검사 시작 실패')
+
+        // 단일 세션 등록
+        allSessions.push({
+          id: data.sessionId,
+          total: data.totalUrls,
+          createdAt: new Date().toISOString(),
+          status: 'running',
+          step,
+          label: `${step} 전체 검사 (${data.totalUrls.toLocaleString()}개)`,
+          isFull: true
+        })
+
+        currentSessionId = data.sessionId
+        document.getElementById('progress-panel').classList.remove('hidden')
+
+        // 단일 세션 폴링
+        startPollingSingle(data.sessionId)
+
+      } catch (e) {
+        const errMsg = e.message || ''
+        if (!errMsg.includes('gov.kr 접근 불가')) {
+          alert(`${step} 전체 검사 시작 실패:\n${errMsg}`)
+        }
+      } finally {
+        ;['1','2','3'].forEach(n => {
+          const b1 = document.getElementById(`step-btn-${n}`)
+          const b2 = document.getElementById(`full-btn-${n}`)
+          if (b1) b1.disabled = false
+          if (b2) b2.disabled = false
+        })
+        if (btnEl) {
+          const cEl = document.getElementById(`full-count-${stepNum}`)
+          const latestCount = cEl ? cEl.textContent : countText
+          btnEl.innerHTML = `<i class="fas fa-globe mr-2"></i>${labelMap[step] || step} <span id="full-count-${stepNum}" class="bg-white/30 text-white text-xs px-2 py-0.5 rounded-full font-semibold">${latestCount}</span>`
+        }
+      }
+    }
+
+    // 단일 세션 폴링 (전체 검사용)
+    function startPollingSingle(sessionId) {
+      stopPolling()
+      const iv = setInterval(async () => {
+        try {
+          const res = await fetch('/api/batch/' + sessionId + '/status')
+          const data = await res.json()
+
+          document.getElementById('progress-label').textContent =
+            `${data.completed || 0} / ${data.total || 0} 완료 (오류: ${data.failed || 0})`
+          document.getElementById('progress-pct').textContent = (data.progress || 0) + '%'
+          document.getElementById('progress-fill').style.width = (data.progress || 0) + '%'
+          document.getElementById('progress-current').textContent =
+            `진행 중... ${data.completed || 0}개 완료`
+
+          if (data.status === 'completed' || data.status === 'aborted') {
+            clearInterval(iv)
+            pollingInterval = null
+            document.getElementById('progress-panel').classList.add('hidden')
+
+            const idx = allSessions.findIndex(s => s.id === sessionId)
+            if (idx >= 0) allSessions[idx].status = data.status
+
+            if (data.status === 'aborted') {
+              alert(`⚠️ 검사가 중단되었습니다.\n${data.abortReason || '연결 오류'}`)
+            } else {
+              const startAllBtn = document.getElementById('start-all-btn')
+              if (startAllBtn) {
+                startAllBtn.disabled = false
+                startAllBtn.innerHTML = '<i class="fas fa-rocket mr-2"></i>전체 민원안내 검사'
+              }
+              setTimeout(() => { switchTab('results'); loadSessionResults(sessionId) }, 1000)
+            }
+          }
+        } catch (e) { console.error('폴링 오류:', e) }
+      }, 3000)
+      pollingInterval = iv
     }
 
     function startPollingAll(sessionIds) {

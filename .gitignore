@@ -39,3 +39,4 @@ core.*
 
 # github actions (workflows 권한 없음)
 .github/
+public/Guardians-of-Galaxy_*.zip

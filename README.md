@@ -1,30 +1,37 @@
-# ♿ A11y Inspector - 웹 품질 종합 검사 도구
+# 🛡️ 가디언즈 오브 겔럭시
+### 웹 접근성·오탈자·링크 종합 검사 도구
 
-웹사이트의 **접근성(WCAG 2.1)**, **오탈자(한글/영문)**, **데드링크**를 한 번에 검사하고 HTML 증적보고서를 생성하는 도구입니다.
-
-## 🌐 서비스 URL
-
-**https://a11y-inspector-production.up.railway.app/**
+> **⚠️ 중요**: 정부24(www.gov.kr) 민원 검사는 **로컬 PC에서만** 가능합니다.  
+> Railway 등 해외 서버에서는 gov.kr 접속이 차단됩니다.
 
 ---
 
-## 🚀 배포 방법 (Railway - 무료)
+## 🖥️ 로컬 실행 (초보자 안내)
 
-### 1단계: Railway 계정 생성
-👉 https://railway.app 에서 GitHub 계정으로 가입
+👉 **[상세 설치 가이드 보기 → LOCAL_SETUP_GUIDE.md](./LOCAL_SETUP_GUIDE.md)**
 
-### 2단계: 새 프로젝트 생성
-1. Railway 대시보드 → **"New Project"** 클릭
-2. **"Deploy from GitHub repo"** 선택
-3. **`loocrd-debug/a11y-inspector`** 저장소 선택
-4. Railway가 Dockerfile을 자동 감지하여 빌드 시작
+### 빠른 시작 (3단계)
 
-### 3단계: 공개 URL 발급
-1. 배포 완료 후 서비스 클릭
-2. **Settings → Networking → Generate Domain** 클릭
-3. `https://a11y-inspector-xxxx.up.railway.app` 형태의 URL 발급
+```bash
+# 1. 패키지 설치
+npm install
 
-> ✅ 이후 `main` 브랜치에 push할 때마다 자동으로 재배포됩니다.
+# 2. Chromium 브라우저 설치 (최초 1회)
+npx playwright install chromium
+
+# 3. 서버 실행
+node server.js
+```
+
+→ 브라우저에서 **http://localhost:3000** 접속
+
+---
+
+## 🌐 온라인 데모
+
+**https://a11y-inspector-production.up.railway.app/**
+
+> ⚠️ 온라인 데모에서는 gov.kr 차단으로 **민원 검사 불가** (접근성 검사 일반 URL은 가능)
 
 ---
 
@@ -32,44 +39,65 @@
 
 | 기능 | 설명 |
 |------|------|
-| ♿ **접근성 검사** | WCAG 2.1 Level A/AA/AAA 기준 axe-core 엔진 검사 |
-| ✍️ **오탈자 검사** | 한글 맞춤법 규칙 + 영문 nspell 사전 기반 |
-| 🔗 **데드링크 검사** | HTTP 상태코드 기반 링크 유효성 검사 |
+| ♿ **접근성 검사** | WCAG 2.1 Level A/AA/AAA · axe-core 엔진 |
+| ✍️ **오탈자 검사** | 한글 맞춤법 + 영문 nspell 사전 |
+| 🔗 **데드링크 검사** | HTTP 상태코드 기반 링크 유효성 |
 | 📸 **스크린샷** | Playwright Chromium 페이지 캡처 |
-| 📄 **HTML 보고서** | 3개 검사 결과 통합 증적자료 생성 |
+| 📄 **보고서 생성** | Excel·HTML 통합 증적자료 |
+| 🏛️ **차수별 검사** | 정부24 전환 민원 1차/2차/3차 (엑셀 8,461건) |
+
+---
+
+## 🏛️ 전환 차수별 민원 검사
+
+`data/minwon-list.xlsx` 파일 기반 (8,461건 수록)
+
+| 차수 | 건수 | 설명 |
+|------|------|------|
+| 1차 | 1,963건 | 1차 전환 대상 민원안내 페이지 |
+| 2차 | 3,237건 | 2차 전환 대상 민원안내 페이지 |
+| 3차 | 3,261건 | 3차 전환 대상 민원안내 페이지 |
+
+접속: `http://localhost:3000/minwon.html` → "배치 스캔 실행" 탭
+
+---
 
 ## 🛠 기술 스택
 
-- **Backend**: Node.js + Express
-- **검사 엔진**: axe-core (접근성) + nspell (영문 맞춤법)
+- **Backend**: Node.js 18+ · Express
+- **검사 엔진**: axe-core (접근성) · nspell (영문 맞춤법)
 - **브라우저**: Playwright Chromium (headless)
-- **컨테이너**: Docker (mcr.microsoft.com/playwright)
+- **Excel**: ExcelJS (민원 목록 파싱, 보고서 생성)
+- **배포**: Docker · Railway (일반 URL 검사용)
 
-## 로컬 실행
+---
 
-```bash
-# 의존성 설치
-npm install
-npx playwright install chromium
-npx playwright install-deps chromium
+## 📁 프로젝트 구조
 
-# 서버 시작
-node server.js
-# 접속: http://localhost:3000
+```
+a11y-inspector/
+├── server.js          # 메인 서버 (Node.js + Express)
+├── public/
+│   ├── index.html     # 메인 검사 UI
+│   └── minwon.html    # 정부24 민원 배치 검사 UI
+├── data/
+│   └── minwon-list.xlsx  # 전환 민원 목록 (8,461건)
+├── LOCAL_SETUP_GUIDE.md  # 📖 로컬 실행 상세 가이드
+├── Dockerfile         # Railway/Docker 배포용
+└── package.json
 ```
 
-## API
+---
 
-### POST /api/scan
-```json
-{
-  "url": "https://example.com",
-  "level": "wcag2aa",
-  "includeScreenshot": true,
-  "checkSpelling": true,
-  "checkLinks": true
-}
-```
+## 🚀 Railway 배포
 
-### POST /api/report
-검사 결과(JSON)를 body로 전달 → HTML 보고서 파일 다운로드
+1. https://railway.app 에서 GitHub 계정으로 가입
+2. "New Project" → "Deploy from GitHub repo"
+3. `loocrd-debug/a11y-inspector` 선택
+4. 자동 빌드 및 배포
+
+> `main` 브랜치 push 시 자동 재배포됩니다.
+
+---
+
+*가디언즈 오브 겔럭시 v2.0 | Node.js + Playwright + axe-core*

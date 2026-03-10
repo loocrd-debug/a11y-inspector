@@ -3431,9 +3431,19 @@ function generateBatchReportHtml(session) {
 }
 
 // ─── 서버 시작 ───────────────────────────────────────
-const PORT = 3000
+const PORT = process.env.PORT || 3000
 createServer(app).listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ 가디언즈 오브 겔럭시 서버 실행 중: http://0.0.0.0:${PORT}`)
+  console.log('')
+  console.log('┌─────────────────────────────────────────────────┐')
+  console.log('│  🛡️  가디언즈 오브 겔럭시  v2.0                  │')
+  console.log('├─────────────────────────────────────────────────┤')
+  console.log(`│  ✅ 서버 실행 중                                 │`)
+  console.log(`│  🌐 접속 주소: http://localhost:${PORT}            │`)
+  console.log(`│  📋 민원 검사: http://localhost:${PORT}/minwon.html│`)
+  console.log('├─────────────────────────────────────────────────┤')
+  console.log('│  종료하려면 Ctrl+C 를 누르세요                  │')
+  console.log('└─────────────────────────────────────────────────┘')
+  console.log('')
   // 서버 시작 시 엑셀 미리 로드 (캐시 워밍업 + 경로 검증)
   loadMinwonByStep()
     .then(d => console.log(`📋 민원 목록 로드 완료: 1차=${d['1차'].length}, 2차=${d['2차'].length}, 3차=${d['3차'].length}`))

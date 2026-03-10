@@ -67,6 +67,19 @@
     </button>
   </div>
 
+  <!-- gov.kr 접속 차단 경고 배너 -->
+  <div id="govkr-blocked-banner" class="hidden bg-amber-500 text-white text-center py-3 px-4 text-sm font-semibold">
+    <i class="fas fa-globe-americas mr-2"></i>
+    <strong>⚠ 이 서버에서는 www.gov.kr 접속이 차단됩니다.</strong>
+    민원 검사를 실행하려면 <strong>로컬(개인 PC)에서 서버를 실행</strong>해야 합니다.
+    <a href="https://github.com/loocrd-debug/a11y-inspector" target="_blank"
+       class="ml-2 bg-white text-amber-700 px-3 py-0.5 rounded font-bold hover:bg-amber-100 transition text-xs">
+      <i class="fab fa-github mr-1"></i>설치 방법 보기
+    </a>
+    <button onclick="document.getElementById('govkr-blocked-banner').classList.add('hidden')"
+      class="ml-2 bg-white/20 px-2 py-0.5 rounded hover:bg-white/30 transition text-xs">닫기</button>
+  </div>
+
   <div class="max-w-7xl mx-auto px-4 py-6">
 
     <!-- 탭 메뉴 -->
@@ -785,20 +798,22 @@
           document.getElementById('progress-pct').textContent = data.progress + '%'
           document.getElementById('progress-fill').style.width = data.progress + '%'
           document.getElementById('progress-current').textContent =
-            data.status === 'running' ? `처리 중... (완료: ${data.completed}, 오류: ${data.failed})` : '완료!'
+            data.status === 'running' ? `처리 중... (완료: ${data.completed}, 오류: ${data.failed})` :
+            data.status === 'aborted' ? `⚠ 중단됨 (완료: ${data.completed}, 오류: ${data.failed})` : '완료!'
 
-          if (data.status === 'completed') {
+          if (data.status === 'completed' || data.status === 'aborted') {
             stopPolling()
             document.getElementById('start-btn').disabled = false
             document.getElementById('start-btn').innerHTML = '<i class="fas fa-play mr-2"></i>배치 스캔 시작'
             const idx = allSessions.findIndex(s => s.id === sessionId)
-            if (idx >= 0) allSessions[idx].status = 'completed'
+            if (idx >= 0) allSessions[idx].status = data.status
 
-            // 결과 탭으로 자동 이동
-            setTimeout(() => {
-              switchTab('results')
-              loadSessionResults(sessionId)
-            }, 1000)
+            if (data.status === 'aborted' && data.abortReason) {
+              document.getElementById('govkr-blocked-banner') && document.getElementById('govkr-blocked-banner').classList.remove('hidden')
+              alert(`⚠ 검사가 중단되었습니다.\n\n${data.abortReason}\n\n로컬 서버에서 실행하시면 정상적으로 검사할 수 있습니다.`)
+            } else {
+              setTimeout(() => { switchTab('results'); loadSessionResults(sessionId) }, 1000)
+            }
           }
         } catch {}
       }, 2000)
@@ -1209,7 +1224,20 @@
         startPollingAll(data.sessionIds)
 
       } catch (e) {
-        alert(`${step} 검사 시작 실패:\n${e.message}`)
+        // gov.kr 차단 여부 감지
+        const errMsg = e.message || ''
+        if (errMsg.includes('ERR_CONNECTION_RESET') || errMsg.includes('fetch failed') || errMsg.includes('ECONNRESET')) {
+          document.getElementById('govkr-blocked-banner') && document.getElementById('govkr-blocked-banner').classList.remove('hidden')
+          alert(
+            `❌ ${step} 검사 실패\n\n` +
+            `이 서버(Railway)에서는 www.gov.kr 접속이 차단되어 있습니다.\n\n` +
+            `해결 방법:\n` +
+            `• 로컬 PC에서 서버를 실행하여 검사하세요.\n` +
+            `• GitHub에서 소스를 다운로드하여 node server.js로 실행하면 됩니다.`
+          )
+        } else {
+          alert(`${step} 검사 시작 실패:\n${errMsg}`)
+        }
       } finally {
         if (btnEl) {
           btnEl.disabled = false
@@ -1251,9 +1279,18 @@
           document.getElementById('progress-current').textContent =
             `세션 ${currentIdx+1} 처리 중 (완료: ${data.completed}, 오류: ${data.failed})`
 
-          if (data.status === 'completed') {
+          if (data.status === 'completed' || data.status === 'aborted') {
             const idx = allSessions.findIndex(s => s.id === sid)
-            if (idx >= 0) allSessions[idx].status = 'completed'
+            if (idx >= 0) allSessions[idx].status = data.status
+
+            if (data.status === 'aborted' && data.abortReason) {
+              stopPolling()
+              document.getElementById('govkr-blocked-banner') && document.getElementById('govkr-blocked-banner').classList.remove('hidden')
+              document.getElementById('progress-current').textContent = `⚠ 중단: ${data.abortReason}`
+              alert(`⚠ 검사가 중단되었습니다.\n\n${data.abortReason}\n\n로컬 서버에서 실행하시면 정상적으로 검사할 수 있습니다.`)
+              return
+            }
+
             currentIdx++
             if (currentIdx < totalSessions) currentSessionId = sessionIds[currentIdx]
           }
@@ -1608,6 +1645,40 @@
     // 최초 + 10초마다 헬스체크
     checkServerHealth()
     setInterval(checkServerHealth, 10000)
+
+    // ── gov.kr 접속 가능 여부 자동 감지 ─────────────────
+    async function checkGovKrConnectivity() {
+      try {
+        const r = await fetch('/api/debug/connectivity', { signal: AbortSignal.timeout(15000) })
+        if (!r.ok) return
+        const d = await r.json()
+        const govUrl = 'https://www.gov.kr/mw/AA020InfoCappView.do?CappBizCD=13200000003'
+        if (d[govUrl] && !d[govUrl].ok) {
+          // gov.kr 접속 차단됨
+          const banner = document.getElementById('govkr-blocked-banner')
+          if (banner) banner.classList.remove('hidden')
+          // 차수별 검사 버튼 비활성화 및 경고 표시
+          ;['step-btn-1','step-btn-2','step-btn-3'].forEach(id => {
+            const btn = document.getElementById(id)
+            if (btn) {
+              btn.disabled = true
+              btn.title = '이 서버에서는 www.gov.kr 접속이 차단되어 있습니다. 로컬 서버를 사용하세요.'
+              btn.classList.add('opacity-40', 'cursor-not-allowed')
+            }
+          })
+          // 전체 검사 버튼도 비활성화
+          document.querySelectorAll('[onclick*="startAllScan"],[onclick*="startBatch"]').forEach(btn => {
+            btn.disabled = true
+            btn.title = '이 서버에서는 www.gov.kr 접속이 차단되어 있습니다.'
+            btn.classList.add('opacity-40', 'cursor-not-allowed')
+          })
+        }
+      } catch(e) {
+        // 연결 테스트 자체 실패는 무시
+      }
+    }
+    // 3초 후 gov.kr 연결 테스트 (서버 준비 후)
+    setTimeout(checkGovKrConnectivity, 3000)
   </script>
 </body>
 </html>

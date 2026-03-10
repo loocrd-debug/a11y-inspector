@@ -1376,10 +1376,15 @@ app.post('/api/batch/start-step', async (req, res) => {
       // 백그라운드 병렬 처리
       ;(async (sess, urlList) => {
         let jIdx = 0, done = 0
+        let consecutiveConnErrors = 0  // 연속 연결 오류 카운터
+        const MAX_CONSEC_ERRORS = 5    // 5회 연속 연결 오류 시 중단
+
         const workers = Array.from({ length: BATCH_CONCURRENCY }, async () => {
           while (true) {
             const j = jIdx++
             if (j >= urlList.length) break
+            // 연속 연결 오류가 너무 많으면 중단 (gov.kr 차단 등)
+            if (consecutiveConnErrors >= MAX_CONSEC_ERRORS) break
             const entry = urlList[j]
             const urlStr = typeof entry === 'string' ? entry : entry.url
             try {
@@ -1401,8 +1406,18 @@ app.post('/api/batch/start-step', async (req, res) => {
                 scannedAt: result.scannedAt
               }
               sess.results.push(lightResult)
-              if (result.status === 'error') sess.failed++
-              else sess.completed++
+              if (result.status === 'error') {
+                sess.failed++
+                // 연결 오류인 경우 카운터 증가
+                if (result.error && (result.error.includes('연결이 끊어졌습니다') || result.error.includes('연결을 거부'))) {
+                  consecutiveConnErrors++
+                } else {
+                  consecutiveConnErrors = 0  // 다른 오류면 리셋
+                }
+              } else {
+                sess.completed++
+                consecutiveConnErrors = 0  // 성공 시 리셋
+              }
             } catch (err) {
               sess.failed++
               sess.results.push({
@@ -1410,6 +1425,9 @@ app.post('/api/batch/start-step', async (req, res) => {
                 id: Date.now().toString(36) + Math.random().toString(36).slice(2),
                 score: 0, summary: { violations: 0, passes: 0, incomplete: 0, inapplicable: 0, impactCounts: {} }
               })
+              if (err.message.includes('ERR_CONNECTION_RESET') || err.message.includes('ERR_CONNECTION_REFUSED')) {
+                consecutiveConnErrors++
+              }
             }
             done++
             sess.progress = Math.round(done / urlList.length * 100)
@@ -1418,7 +1436,13 @@ app.post('/api/batch/start-step', async (req, res) => {
         await Promise.allSettled(workers)
         sess.status = 'completed'
         sess.finishedAt = new Date().toISOString()
-        console.log(`[배치완료] ${sess.label} sessionId=${sess.id} 완료=${sess.completed} 실패=${sess.failed}`)
+        if (consecutiveConnErrors >= MAX_CONSEC_ERRORS) {
+          sess.status = 'aborted'
+          sess.abortReason = `연속 ${MAX_CONSEC_ERRORS}회 연결 오류로 중단됨. 이 서버에서 대상 사이트 접속이 차단되었을 수 있습니다.`
+          console.warn(`[배치중단] ${sess.label} sessionId=${sess.id} - 연속 연결 오류로 중단 (완료=${sess.completed} 실패=${sess.failed})`)
+        } else {
+          console.log(`[배치완료] ${sess.label} sessionId=${sess.id} 완료=${sess.completed} 실패=${sess.failed}`)
+        }
       })(session, urls)
     }
 
@@ -2529,7 +2553,8 @@ app.get('/api/batch/:sessionId/status', (req, res) => {
     failed: session.failed,
     progress: session.progress || 0,
     createdAt: session.createdAt,
-    finishedAt: session.finishedAt
+    finishedAt: session.finishedAt,
+    abortReason: session.abortReason || null
   })
 })
 

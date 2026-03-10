@@ -1245,6 +1245,39 @@ async function loadMinwonByStep() {
   return byStep
 }
 
+// GET /api/debug/browser  → Playwright/Chromium 실행 테스트
+app.get('/api/debug/browser', async (req, res) => {
+  const result = { ok: false, error: null, chromiumPath: null, env: {} }
+  try {
+    result.env = {
+      NODE_VERSION: process.version,
+      PLAYWRIGHT_BROWSERS_PATH: process.env.PLAYWRIGHT_BROWSERS_PATH || '(미설정)',
+      HOME: process.env.HOME || '(미설정)',
+      PATH_PREVIEW: (process.env.PATH || '').substring(0, 200)
+    }
+    // Chromium 경로 확인
+    const { execSync } = await import('child_process')
+    try {
+      result.chromiumPath = execSync('which chromium-browser || which chromium || which google-chrome || echo "NOT_FOUND"', { timeout: 3000 }).toString().trim()
+    } catch(e) { result.chromiumPath = 'command failed: ' + e.message }
+
+    // 실제 Playwright launch 테스트
+    const testBrowser = await chromium.launch({
+      args: ['--no-sandbox','--disable-setuid-sandbox','--disable-dev-shm-usage','--disable-gpu'],
+      timeout: 15000
+    })
+    const page = await testBrowser.newPage()
+    await page.goto('about:blank')
+    const title = await page.title()
+    await testBrowser.close()
+    result.ok = true
+    result.title = title
+  } catch(e) {
+    result.error = e.message
+  }
+  res.json(result)
+})
+
 // GET /api/minwon/steps  → 차수 목록 및 건수
 app.get('/api/minwon/steps', async (req, res) => {
   try {

@@ -579,16 +579,14 @@ app.post('/api/scan', async (req, res) => {
       // 페이지 텍스트 추출 (줄 단위 배열로) - body null 방지 처리 포함
       const pageLines = await page.evaluate(() => {
         if (!document.body) return []
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-          acceptNode(node) {
-            const tag = node.parentElement?.tagName?.toLowerCase()
-            if (['script', 'style', 'noscript', 'code', 'pre'].includes(tag)) return NodeFilter.FILTER_REJECT
-            return NodeFilter.FILTER_ACCEPT
-          }
-        })
+        // NodeFilter 객체 직렬화 문제 회피: 세 번째 인자 없이 SHOW_TEXT만 사용 후 직접 필터
+        const SKIP_TAGS = new Set(['script', 'style', 'noscript', 'code', 'pre'])
+        const walker = document.createTreeWalker(document.body, 0x4 /* NodeFilter.SHOW_TEXT */)
         const texts = []
         let n
         while ((n = walker.nextNode())) {
+          const tag = n.parentElement?.tagName?.toLowerCase()
+          if (SKIP_TAGS.has(tag)) continue
           const t = n.textContent.trim()
           if (t.length > 1) texts.push(t)
         }
@@ -2304,16 +2302,14 @@ async function scanSinglePage(url, options = {}) {
           // 임시 div에 파싱해 텍스트 추출
           const div = document.createElement('div')
           div.innerHTML = region
-          const walker = document.createTreeWalker(div, NodeFilter.SHOW_TEXT, {
-            acceptNode(node) {
-              const tag = node.parentElement?.tagName?.toLowerCase()
-              if (['script','style','noscript','code','pre'].includes(tag)) return NodeFilter.FILTER_REJECT
-              return NodeFilter.FILTER_ACCEPT
-            }
-          })
+          // NodeFilter 객체 직렬화 문제 회피: 세 번째 인자 없이 SHOW_TEXT만 사용 후 직접 필터
+          const SKIP_TAGS = new Set(['script','style','noscript','code','pre'])
+          const walker = document.createTreeWalker(div, 0x4 /* NodeFilter.SHOW_TEXT */)
           const texts = []
           let n
           while ((n = walker.nextNode())) {
+            const tag = n.parentElement?.tagName?.toLowerCase()
+            if (SKIP_TAGS.has(tag)) continue
             const t = n.textContent.trim()
             if (t.length > 1) texts.push(t)
           }
@@ -2322,16 +2318,14 @@ async function scanSinglePage(url, options = {}) {
       } else {
         pageLines = await page.evaluate(() => {
           if (!document.body) return []
-          const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-            acceptNode(node) {
-              const tag = node.parentElement?.tagName?.toLowerCase()
-              if (['script', 'style', 'noscript', 'code', 'pre'].includes(tag)) return NodeFilter.FILTER_REJECT
-              return NodeFilter.FILTER_ACCEPT
-            }
-          })
+          // NodeFilter 객체 직렬화 문제 회피: 세 번째 인자 없이 SHOW_TEXT만 사용 후 직접 필터
+          const SKIP_TAGS = new Set(['script', 'style', 'noscript', 'code', 'pre'])
+          const walker = document.createTreeWalker(document.body, 0x4 /* NodeFilter.SHOW_TEXT */)
           const texts = []
           let n
           while ((n = walker.nextNode())) {
+            const tag = n.parentElement?.tagName?.toLowerCase()
+            if (SKIP_TAGS.has(tag)) continue
             const t = n.textContent.trim()
             if (t.length > 1) texts.push(t)
           }

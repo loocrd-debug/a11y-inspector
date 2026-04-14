@@ -7,8 +7,52 @@ const { readFileSync, writeFileSync, unlinkSync, mkdirSync, existsSync } = requi
 const { dirname, join, extname } = require('path')
 // createRequire not needed in CJS
 const ExcelJS = require('exceljs')
-const { tmpdir } = require('os')
+const { tmpdir, homedir } = require('os')
 const { randomBytes } = require('crypto')
+
+// ── PKG(exe) 실행 시 Chromium 경로 자동 탐지 ──────────
+// pkg로 빌드된 exe는 __dirname이 스냅샷 내부를 가리키므로
+// process.execPath(exe 위치) 기준으로 chromium 폴더를 탐색한다
+;(function setupChromiumPath() {
+  // 이미 환경변수가 설정되어 있으면 그대로 사용
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH) return
+
+  const exeDir = dirname(process.execPath)   // exe가 놓인 실제 폴더
+  const candidates = [
+    join(exeDir, 'chromium'),                // 배포 패키지 내 chromium 폴더
+    join(exeDir, '..', 'chromium'),
+    join(homedir(), '.cache', 'ms-playwright'),   // 로컬 npm install 경로
+    join(homedir(), 'AppData', 'Local', 'ms-playwright'),  // Windows npm
+  ]
+  for (const p of candidates) {
+    if (existsSync(p)) {
+      process.env.PLAYWRIGHT_BROWSERS_PATH = p
+      console.log('[Chromium] 경로 자동 설정:', p)
+      return
+    }
+  }
+  // 못 찾아도 Playwright 내장 탐색에 맡김 (개발 환경)
+})()
+
+// ── --install-chromium 플래그: Chromium만 설치하고 종료 ─
+if (process.argv.includes('--install-chromium')) {
+  const { execSync } = require('child_process')
+  const exeDir = dirname(process.execPath)
+  const targetPath = join(exeDir, 'chromium')
+  process.env.PLAYWRIGHT_BROWSERS_PATH = targetPath
+  console.log('Chromium 설치 중...', targetPath)
+  try {
+    execSync('npx playwright install chromium', {
+      stdio: 'inherit',
+      env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: targetPath }
+    })
+    console.log('✅ Chromium 설치 완료!')
+  } catch(e) {
+    console.error('❌ Chromium 설치 실패:', e.message)
+    process.exit(1)
+  }
+  process.exit(0)
+}
 
 // ── 코어덤프 비활성화 (디스크 낭비 방지) ──────────────
 try { process.setrlimit('core', { soft: 0, hard: 0 }) } catch(_) {}
@@ -33,12 +77,20 @@ const upload = multer({
   }
 })
 
+// ── PKG exe/일반 실행 공통: 실제 파일 루트 경로 결정 ──
+// pkg로 빌드된 exe: process.pkg 가 존재 → exe 옆 폴더를 실제 루트로 사용
+// 일반 node 실행: __dirname 사용
+const APP_ROOT = process.pkg
+  ? dirname(process.execPath)   // exe가 있는 폴더 (data/, public/ 등이 나란히 위치)
+  : __dirname
+
 const app = express()
 app.use(cors())
 app.use(express.json({ limit: '50mb' }))
-app.use(express.static(join(__dirname, 'public')))
+app.use(express.static(join(APP_ROOT, 'public')))
 
 // axe-core 소스 서버 시작 시 1회만 로드 (캐싱 → 매 스캔 I/O 제거)
+// pkg 내부 스냅샷(__dirname)에서는 axe.min.js가 번들에 포함되어 있으므로 __dirname 사용
 const AXE_SOURCE = readFileSync(join(__dirname, 'node_modules/axe-core/axe.min.js'), 'utf8')
 
 // ─────────────────────────────────────────────────────
@@ -1210,10 +1262,11 @@ let _minwonByStep = null
 async function loadMinwonByStep() {
   if (_minwonByStep) return _minwonByStep
   const wb = new ExcelJS.Workbook()
-  // 경로 후보: 환경변수 > __dirname 기준 > process.cwd() 기준 > 절대경로
+  // 경로 후보: 환경변수 > APP_ROOT(exe 옆) > __dirname > process.cwd() > 절대경로
   const candidates = [
     process.env.EXCEL_PATH,
-    join(__dirname, 'data', 'minwon-list.xlsx'),
+    join(APP_ROOT, 'data', 'minwon-list.xlsx'),          // exe 배포 패키지
+    join(__dirname, 'data', 'minwon-list.xlsx'),          // 일반 node 실행
     join(process.cwd(), 'data', 'minwon-list.xlsx'),
     '/home/user/webapp/data/minwon-list.xlsx',
     '/app/data/minwon-list.xlsx'

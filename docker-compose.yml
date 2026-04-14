@@ -1,0 +1,30 @@
+# 가디언즈 오브 갤럭시 — Docker Compose
+# 사용법: docker compose up -d
+
+services:
+  a11y-inspector:
+    build: .
+    image: a11y-inspector:latest
+    container_name: a11y-inspector
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    # 데이터 영속성: 스캔 결과 및 설정 보존
+    volumes:
+      - ./data:/app/data:ro          # 엑셀 원본 (읽기전용)
+      - a11y-results:/app/results    # 스캔 결과 저장
+    restart: unless-stopped
+    # Chromium headless 실행에 필요한 메모리
+    shm_size: 256mb
+    # 리소스 제한
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+volumes:
+  a11y-results:

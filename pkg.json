@@ -1,0 +1,22 @@
+{
+  "pkg": {
+    "scripts": [
+      "server.cjs"
+    ],
+    "assets": [
+      "public/**/*",
+      "data/**/*",
+      "node_modules/axe-core/axe.min.js",
+      "node_modules/exceljs/**/*.js",
+      "node_modules/archiver/**/*.js",
+      "node_modules/archiver-utils/**/*.js",
+      "node_modules/zip-stream/**/*.js",
+      "node_modules/compress-commons/**/*.js",
+      "node_modules/crc32-stream/**/*.js"
+    ],
+    "targets": [
+      "node20-win-x64"
+    ],
+    "outputPath": "/tmp/pkg-out"
+  }
+}

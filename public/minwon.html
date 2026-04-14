@@ -1966,5 +1966,44 @@
     // 3초 후 gov.kr 연결 테스트 (서버 준비 후)
     setTimeout(checkGovKrConnectivity, 3000)
   </script>
+
+<!-- ─── 로컬 실행 패키지 다운로드 섹션 ─── -->
+<section style="max-width:760px;margin:0 auto;padding:24px 16px 48px;">
+  <div style="background:linear-gradient(135deg,#f8fafc,#eff6ff);border:1px solid #e2e8f0;border-radius:16px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,.06)">
+    <h2 style="font-size:14px;font-weight:700;color:#475569;margin:0 0 4px;display:flex;align-items:center;gap:6px">
+      💾 로컬 설치 패키지 다운로드
+    </h2>
+    <p style="font-size:12px;color:#94a3b8;margin:0 0 16px">인터넷 없이, 별도 서버 없이 내 PC에서 바로 실행</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <a href="/Guardians-Windows-v2.2.zip" download
+         style="display:flex;gap:12px;align-items:flex-start;background:#fff;border:1px solid #bfdbfe;border-radius:12px;padding:14px;text-decoration:none;transition:border-color .2s"
+         onmouseover="this.style.borderColor='#3b82f6'" onmouseout="this.style.borderColor='#bfdbfe'">
+        <span style="font-size:22px;margin-top:2px">🪟</span>
+        <div>
+          <div style="font-weight:600;font-size:13px;color:#1e293b">Windows 실행 패키지</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:2px">Node.js 설치 불필요 · exe 더블클릭</div>
+          <div style="font-size:11px;color:#3b82f6;margin-top:6px;font-weight:500">Guardians-Windows-v2.2.zip ~27MB</div>
+          <div style="font-size:11px;color:#64748b;margin-top:4px">① ZIP 해제 → ② START.bat 실행</div>
+          <div style="font-size:11px;color:#d97706;margin-top:3px">⚠ Chromium 최초 1회 자동 설치</div>
+        </div>
+      </a>
+      <a href="/Guardians-Docker-v2.2.zip" download
+         style="display:flex;gap:12px;align-items:flex-start;background:#fff;border:1px solid #99f6e4;border-radius:12px;padding:14px;text-decoration:none;transition:border-color .2s"
+         onmouseover="this.style.borderColor='#14b8a6'" onmouseout="this.style.borderColor='#99f6e4'">
+        <span style="font-size:22px;margin-top:2px">🐳</span>
+        <div>
+          <div style="font-weight:600;font-size:13px;color:#1e293b">Docker 실행 패키지</div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:2px">Windows · Mac · Linux 공통</div>
+          <div style="font-size:11px;color:#14b8a6;margin-top:6px;font-weight:500">Guardians-Docker-v2.2.zip ~757KB</div>
+          <div style="font-size:11px;color:#64748b;margin-top:4px">① Docker Desktop → ② START_DOCKER.bat</div>
+          <div style="font-size:11px;color:#d97706;margin-top:3px">⚠ 첫 빌드 5~10분 (이후 즉시 실행)</div>
+        </div>
+      </a>
+    </div>
+    <p style="font-size:11px;color:#94a3b8;text-align:center;margin:14px 0 0">
+      두 방법 모두 <strong style="color:#475569">http://localhost:3000</strong> 으로 접속
+    </p>
+  </div>
+</section>
 </body>
 </html>

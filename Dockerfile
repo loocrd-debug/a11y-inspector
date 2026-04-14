@@ -1,31 +1,69 @@
-# Playwright 공식 이미지 (Chromium + 모든 시스템 의존성 포함)
-FROM mcr.microsoft.com/playwright:v1.52.0-noble
+# ─────────────────────────────────────────────────────────────
+#  가디언즈 오브 갤럭시 (웹 접근성 검사 시스템)
+#  Dockerfile — Node.js 20 + Playwright Chromium 포함
+# ─────────────────────────────────────────────────────────────
+FROM node:20-bookworm-slim
 
+# ── 시스템 의존성 (Chromium headless 실행에 필요한 라이브러리) ──
+RUN apt-get update && apt-get install -y \
+    # 폰트
+    fonts-noto-cjk \
+    fonts-liberation \
+    # Chromium 런타임 라이브러리
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcairo2 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libglib2.0-0 \
+    libnspr4 \
+    libnss3 \
+    libpango-1.0-0 \
+    libx11-6 \
+    libxcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    libxshmfence1 \
+    wget \
+    ca-certificates \
+    --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── 작업 디렉토리 ──────────────────────────────────────────────
 WORKDIR /app
 
-# package.json 먼저 복사 (레이어 캐싱 활용)
-COPY package*.json ./
+# ── package.json 먼저 복사 → npm install (레이어 캐시 최적화) ──
+COPY package.json ./
 
-# production 의존성만 설치
-RUN npm ci --omit=dev
+# npm install + Playwright Chromium 다운로드
+RUN npm install --omit=dev 2>/dev/null || npm install \
+    && npx playwright install chromium \
+    && npx playwright install-deps chromium 2>/dev/null || true
 
-# Chromium 브라우저 설치
-RUN npx playwright install chromium
-
-# 소스코드 복사
-COPY server.js ./
+# ── 앱 소스 복사 ───────────────────────────────────────────────
+COPY server.cjs ./
 COPY public/ ./public/
-# ★ 민원 목록 엑셀 파일 복사 (차수별 검사에 필수)
 COPY data/ ./data/
 
-# 로그 디렉터리 생성
-RUN mkdir -p /app/logs
+# ── 환경변수 ───────────────────────────────────────────────────
+ENV NODE_ENV=production
+ENV PORT=3000
+# Playwright: 컨테이너 내부 브라우저 경로 자동 탐지
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
-# 포트
+# ── 포트 노출 ──────────────────────────────────────────────────
 EXPOSE 3000
 
-# 헬스체크
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
-  CMD curl -f http://localhost:3000/api/minwon/steps || exit 1
+# ── Chromium sandbox 비활성화 (컨테이너 내부 root 실행 대응) ──
+ENV PLAYWRIGHT_CHROMIUM_SANDBOX=false
 
-CMD ["node", "--max-old-space-size=512", "server.js"]
+# ── 시작 명령 ──────────────────────────────────────────────────
+CMD ["node", "--max-old-space-size=512", "server.cjs"]
